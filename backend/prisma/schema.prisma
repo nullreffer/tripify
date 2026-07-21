@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String       @id @default(cuid())
+  googleId       String       @unique
+  email          String       @unique
+  name           String
+  avatar         String?
+  trips          Trip[]
+  tripMembers    TripMember[]
+  invitesCreated Invite[]
+  aiMessages     AiMessage[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Trip {
+  id             String              @id @default(cuid())
+  title          String
+  description    String?
+  coverImage     String?
+  startDate      DateTime?
+  endDate        DateTime?
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members        TripMember[]
+  invites        Invite[]
+  stops          Stop[]
+  itemCategories ItemCategory[]
+  references     ExternalReference[]
+  aiMessages     AiMessage[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+enum TripRole {
+  PLANNER
+  VIEWER
+}
+
+model TripMember {
+  id        String   @id @default(cuid())
+  tripId    String
+  userId    String
+  role      TripRole
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([tripId, userId])
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  token       String    @unique @default(cuid())
+  tripId      String
+  trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  role        TripRole
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  usedAt      DateTime?
+  usedById    String?
+  createdAt   DateTime  @default(now())
+}
+
+enum PinType {
+  GENERAL
+  STAY
+  HOTEL
+  CAMPGROUND
+  HIKING_TRAIL
+  RESTAURANT
+  ATTRACTION
+  GAS_STATION
+  EV_CHARGER
+  AIRPORT
+  PARKING
+  OTHER
+}
+
+model Stop {
+  id         String    @id @default(cuid())
+  tripId     String
+  trip       Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  name       String
+  address    String?
+  lat        Float
+  lng        Float
+  order      Int
+  pinType    PinType   @default(GENERAL)
+  notes      String?
+  targetDate DateTime?
+  reached    Boolean   @default(false)
+  reachedAt  DateTime?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model ItemCategory {
+  id        String     @id @default(cuid())
+  tripId    String
+  trip      Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  name      String
+  order     Int        @default(0)
+  items     TripItem[]
+  createdAt DateTime   @default(now())
+}
+
+model TripItem {
+  id         String       @id @default(cuid())
+  categoryId String
+  category   ItemCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name       String
+  done       Boolean      @default(false)
+  color      String?
+  order      Int          @default(0)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model ExternalReference {
+  id        String   @id @default(cuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  name      String
+  url       String
+  refType   String   @default("LINK")
+  createdAt DateTime @default(now())
+}
+
+model AiMessage {
+  id        String   @id @default(cuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+}
+

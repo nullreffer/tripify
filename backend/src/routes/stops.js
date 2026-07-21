@@ -1,0 +1,183 @@
+const express = require('express');
+const { PrismaClient } = require('@prisma/client');
+const requireAuth = require('../middleware/requireAuth');
+
+const prisma = new PrismaClient();
+const router = express.Router({ mergeParams: true });
+
+// Helper: resolve trip access and return role
+async function resolveAccess(tripId, userId, requireWrite = false) {
+  const trip = await prisma.trip.findFirst({
+    where: {
+      id: tripId,
+      OR: [
+        { userId },
+        { members: { some: { userId } } }
+      ]
+    },
+    include: { members: { where: { userId } } }
+  });
+  if (!trip) return null;
+  const isOwner = trip.userId === userId;
+  const memberRole = trip.members[0]?.role;
+  if (requireWrite && !isOwner && memberRole !== 'PLANNER') return null;
+  return { trip, isOwner, memberRole };
+}
+
+// GET /api/trips/:tripId/stops
+router.get('/', requireAuth, async (req, res, next) => {
+  try {
+    const access = await resolveAccess(req.params.tripId, req.user.id);
+    if (!access) return res.status(404).json({ error: 'Trip not found' });
+    const stops = await prisma.stop.findMany({
+      where: { tripId: req.params.tripId },
+      orderBy: { order: 'asc' }
+    });
+    res.json(stops);
+  } catch (err) { next(err); }
+});
+
+// POST /api/trips/:tripId/stops
+router.post('/', requireAuth, async (req, res, next) => {
+  try {
+    const access = await resolveAccess(req.params.tripId, req.user.id, true);
+    if (!access) return res.status(403).json({ error: 'Not found or insufficient permissions' });
+
+    const { name, address, lat, lng, pinType, notes, targetDate, metadata } = req.body;
+    if (!name || lat == null || lng == null) {
+      return res.status(400).json({ error: 'name, lat, and lng are required' });
+    }
+
+    // Place at end
+    const maxOrder = await prisma.stop.aggregate({
+      where: { tripId: req.params.tripId },
+      _max: { order: true }
+    });
+    const order = (maxOrder._max.order ?? -1) + 1;
+
+    const stop = await prisma.stop.create({
+      data: {
+        tripId: req.params.tripId,
+        name: name.trim(),
+        address,
+        lat: parseFloat(lat),
+        lng: parseFloat(lng),
+        order,
+        pinType: pinType || 'GENERAL',
+        notes,
+        targetDate: targetDate ? new Date(targetDate) : null,
+        metadata: metadata || undefined
+      }
+    });
+
+    // Touch trip updatedAt
+    await prisma.trip.update({ where: { id: req.params.tripId }, data: {} });
+    res.status(201).json(stop);
+  } catch (err) { next(err); }
+});
+
+// PUT /api/trips/:tripId/stops/reorder
+router.put('/reorder', requireAuth, async (req, res, next) => {
+  try {
+    const access = await resolveAccess(req.params.tripId, req.user.id, true);
+    if (!access) return res.status(403).json({ error: 'Not found or insufficient permissions' });
+
+    const { ids } = req.body; // ordered array of stop IDs
+    if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
+
+    await prisma.$transaction(
+      ids.map((id, idx) =>
+        prisma.stop.update({
+          where: { id, tripId: req.params.tripId },
+          data: { order: idx }
+        })
+      )
+    );
+    await prisma.trip.update({ where: { id: req.params.tripId }, data: {} });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/trips/:tripId/stops/:stopId
+router.put('/:stopId', requireAuth, async (req, res, next) => {
+  try {
+    const access = await resolveAccess(req.params.tripId, req.user.id, true);
+    if (!access) return res.status(403).json({ error: 'Not found or insufficient permissions' });
+
+    const { name, address, lat, lng, pinType, notes, targetDate, metadata } = req.body;
+    const stop = await prisma.stop.findFirst({
+      where: { id: req.params.stopId, tripId: req.params.tripId }
+    });
+    if (!stop) return res.status(404).json({ error: 'Stop not found' });
+
+    const updated = await prisma.stop.update({
+      where: { id: req.params.stopId },
+      data: {
+        name: name?.trim() ?? stop.name,
+        address: address !== undefined ? address : stop.address,
+        lat: lat != null ? parseFloat(lat) : stop.lat,
+        lng: lng != null ? parseFloat(lng) : stop.lng,
+        pinType: pinType ?? stop.pinType,
+        notes: notes !== undefined ? notes : stop.notes,
+        targetDate: targetDate !== undefined ? (targetDate ? new Date(targetDate) : null) : stop.targetDate,
+        metadata: metadata !== undefined ? metadata : stop.metadata
+      }
+    });
+    await prisma.trip.update({ where: { id: req.params.tripId }, data: {} });
+    res.json(updated);
+  } catch (err) { next(err); }
+});
+
+// POST /api/trips/:tripId/stops/:stopId/reach
+router.post('/:stopId/reach', requireAuth, async (req, res, next) => {
+  try {
+    const access = await resolveAccess(req.params.tripId, req.user.id, true);
+    if (!access) return res.status(403).json({ error: 'Not found or insufficient permissions' });
+
+    const { reached } = req.body;
+    const stop = await prisma.stop.findFirst({
+      where: { id: req.params.stopId, tripId: req.params.tripId }
+    });
+    if (!stop) return res.status(404).json({ error: 'Stop not found' });
+
+    const updated = await prisma.stop.update({
+      where: { id: req.params.stopId },
+      data: {
+        reached: reached !== false,
+        reachedAt: reached !== false ? new Date() : null
+      }
+    });
+    await prisma.trip.update({ where: { id: req.params.tripId }, data: {} });
+    res.json(updated);
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/trips/:tripId/stops/:stopId
+router.delete('/:stopId', requireAuth, async (req, res, next) => {
+  try {
+    const access = await resolveAccess(req.params.tripId, req.user.id, true);
+    if (!access) return res.status(403).json({ error: 'Not found or insufficient permissions' });
+
+    const stop = await prisma.stop.findFirst({
+      where: { id: req.params.stopId, tripId: req.params.tripId }
+    });
+    if (!stop) return res.status(404).json({ error: 'Stop not found' });
+
+    await prisma.stop.delete({ where: { id: req.params.stopId } });
+
+    // Re-normalize order
+    const remaining = await prisma.stop.findMany({
+      where: { tripId: req.params.tripId },
+      orderBy: { order: 'asc' }
+    });
+    await prisma.$transaction(
+      remaining.map((s, idx) =>
+        prisma.stop.update({ where: { id: s.id }, data: { order: idx } })
+      )
+    );
+    await prisma.trip.update({ where: { id: req.params.tripId }, data: {} });
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+module.exports = router;
