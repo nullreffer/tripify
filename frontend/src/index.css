@@ -1230,3 +1230,207 @@ body {
 /* Spinner sizes */
 .spinner.sm { width: 24px; height: 24px; border-width: 2px; }
 .spinner.xs { width: 16px; height: 16px; border-width: 2px; }
+
+/* ═══════════════════════════════════════════════════
+   MAP OVERLAY CONTROLS (updated)
+═══════════════════════════════════════════════════ */
+.ws-map-controls {
+  position: absolute;
+  bottom: 100px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  z-index: 400;
+}
+
+.map-ctrl-btn {
+  width: 44px;
+  height: 44px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  transition: background .12s, color .12s;
+}
+.map-ctrl-btn:hover { background: var(--bg); }
+.map-ctrl-btn:first-child {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  font-size: 1.5rem;
+  font-weight: 300;
+  line-height: 1;
+}
+.map-ctrl-btn:first-child:hover { background: var(--primary-hover); }
+.map-ctrl-trails { color: #16a34a !important; }
+
+/* Workspace dark mode map control */
+.workspace-dark .map-ctrl-btn {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+.workspace-dark .map-ctrl-btn:hover { background: #293548; }
+.workspace-dark .map-ctrl-btn:first-child { background: var(--primary); color: #fff; }
+
+/* ═══════════════════════════════════════════════════
+   GEOGRAPHIC PROGRESS BAR
+═══════════════════════════════════════════════════ */
+.ws-geo-progress {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin-top: .3rem;
+  font-size: .7rem;
+  color: var(--text-muted);
+}
+.ws-geo-done { white-space: nowrap; font-weight: 600; color: #22c55e; }
+.ws-geo-left { white-space: nowrap; }
+.ws-geo-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.ws-geo-fill {
+  height: 100%;
+  background: #22c55e;
+  border-radius: 99px;
+  transition: width .4s ease;
+}
+
+/* Update next-strip layout to accommodate progress */
+.ws-next-strip {
+  flex-direction: column;
+  align-items: stretch;
+  gap: .35rem;
+  padding: .65rem 1rem;
+}
+.ws-next-strip > .ws-next-actions {
+  display: flex;
+  gap: .5rem;
+  justify-content: flex-end;
+}
+
+/* ═══════════════════════════════════════════════════
+   SETTINGS PAGE
+═══════════════════════════════════════════════════ */
+.settings-page {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: 1.25rem 1rem .5rem;
+}
+.settings-header h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.settings-card {
+  background: var(--surface);
+  border-radius: 16px;
+  margin: .5rem 1rem 2rem;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.settings-section {
+  padding: 1rem;
+}
+.settings-section h3 {
+  font-size: .78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+  margin-bottom: .75rem;
+}
+
+.settings-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0;
+}
+
+.settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .35rem 0;
+}
+.settings-row + .settings-row { border-top: 1px solid var(--border); margin-top: .5rem; padding-top: .75rem; }
+
+.settings-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  flex: 1;
+  min-width: 0;
+}
+.settings-row-label > span:first-child {
+  font-size: .9rem;
+  font-weight: 600;
+}
+.settings-row-hint {
+  font-size: .78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.toggle-group {
+  display: flex;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.toggle-btn {
+  padding: .35rem .75rem;
+  background: var(--bg);
+  border: none;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background .12s, color .12s;
+  white-space: nowrap;
+}
+.toggle-btn + .toggle-btn { border-left: 1.5px solid var(--border); }
+.toggle-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ═══════════════════════════════════════════════════
+   DRAWER BUTTON (for Settings link)
+═══════════════════════════════════════════════════ */
+.drawer-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-size: .95rem;
+  padding: .75rem 1.25rem;
+  color: var(--text);
+  text-decoration: none;
+  display: block;
+  border-radius: 8px;
+  transition: background .12s;
+}
+.drawer-link:hover { background: var(--bg); }

@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useCallback } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { MapContainer, TileLayer, Polyline, Marker, useMap, useMapEvents } from 'react-leaflet';
+import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import { PIN_TYPES } from '../../constants/pinTypes.js';
 
@@ -15,12 +16,12 @@ function makeStopIcon(stop, index, isNext) {
   const pt = PIN_TYPES[stop.pinType] || PIN_TYPES.GENERAL;
   const color = stop.reached ? '#22c55e' : isNext ? '#f97316' : pt.color;
   const border = isNext ? '3px solid #fff' : '2px solid rgba(255,255,255,0.8)';
-  const shadow = isNext ? '0 0 0 3px #f97316' : 'none';
+  const glow = isNext ? '0 0 0 3px #f97316' : '';
   const html = `
     <div style="
       width:36px;height:36px;border-radius:50%;
       background:${color};border:${border};
-      box-shadow:var(--marker-shadow,${shadow}),0 2px 6px rgba(0,0,0,.35);
+      box-shadow:${glow ? glow + ',' : ''}0 2px 6px rgba(0,0,0,.35);
       display:flex;align-items:center;justify-content:center;
       font-size:16px;position:relative;cursor:pointer;
     ">
@@ -44,98 +45,100 @@ function makeLocationIcon() {
   return L.divIcon({ html, className: '', iconSize: [18, 18], iconAnchor: [9, 9] });
 }
 
-function MapController({ stops, route, userLocation, fitOnMount }) {
+// Exposes imperative map control methods to parent via ref
+const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
   const map = useMap();
+  useImperativeHandle(ref, () => ({
+    flyToLocation(lat, lng, zoom = 15) {
+      map.flyTo([lat, lng], zoom, { animate: true, duration: 0.8 });
+    },
+    fitTrip() {
+      if (stops.length === 0) return;
+      if (stops.length === 1) {
+        map.flyTo([stops[0].lat, stops[0].lng], 13);
+        return;
+      }
+      const bounds = L.latLngBounds(stops.map(s => [s.lat, s.lng]));
+      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14, animate: true });
+    },
+    getCenter() { return map.getCenter(); },
+    getBounds() { return map.getBounds(); },
+  }), [map, stops]);
+  return null;
+});
 
+function MapInitialFit({ stops, userLocation }) {
+  const map = useMap();
+  const fitted = useRef(false);
   useEffect(() => {
-    if (!fitOnMount) return;
-    if (stops.length > 0) {
+    if (fitted.current) return;
+    fitted.current = true;
+    if (stops.length > 1) {
       const bounds = L.latLngBounds(stops.map(s => [s.lat, s.lng]));
       map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
+    } else if (stops.length === 1) {
+      map.setView([stops[0].lat, stops[0].lng], 13);
     } else if (userLocation) {
       map.setView(userLocation, 13);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   return null;
 }
 
 function LongPressHandler({ onLongPress }) {
-  const longPressTimer = useRef(null);
-
+  const timer = useRef(null);
   useMapEvents({
-    mousedown(e) {
-      longPressTimer.current = setTimeout(() => {
-        onLongPress(e.latlng);
-      }, 600);
-    },
-    mouseup() { clearTimeout(longPressTimer.current); },
-    mousemove() { clearTimeout(longPressTimer.current); },
+    mousedown(e) { timer.current = setTimeout(() => onLongPress(e.latlng), 600); },
+    mouseup()   { clearTimeout(timer.current); },
+    mousemove() { clearTimeout(timer.current); },
     touchstart(e) {
-      const touch = e.originalEvent.touches[0];
-      longPressTimer.current = setTimeout(() => {
+      const t = e.originalEvent.touches[0];
+      const rect = e.target._map.getContainer().getBoundingClientRect();
+      timer.current = setTimeout(() => {
         const latlng = e.target._map.containerPointToLatLng(
-          L.point(touch.clientX - e.target._map.getContainer().getBoundingClientRect().left,
-                  touch.clientY - e.target._map.getContainer().getBoundingClientRect().top)
+          L.point(t.clientX - rect.left, t.clientY - rect.top)
         );
         onLongPress(latlng);
       }, 600);
     },
-    touchend() { clearTimeout(longPressTimer.current); },
-    touchmove() { clearTimeout(longPressTimer.current); },
+    touchend()  { clearTimeout(timer.current); },
+    touchmove() { clearTimeout(timer.current); },
   });
   return null;
 }
 
-// Completed vs upcoming segments
 function RouteLayer({ stops, route }) {
-  if (!route || !route.geometry) return null;
-
-  const completedStops = stops.filter(s => s.reached);
-  const lastReachedIdx = stops.reduce((acc, s, i) => s.reached ? i : acc, -1);
-
-  // Full route coordinates from OSRM
+  if (!route?.geometry) return null;
   const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-
-  // For simplicity: color the whole line orange, show completed portion in green
-  // We approximate completed portion by reached stop positions
+  const lastReachedIdx = stops.reduce((acc, s, i) => s.reached ? i : acc, -1);
+  const splitAt = lastReachedIdx >= 0
+    ? Math.floor(coords.length * (lastReachedIdx + 1) / stops.length)
+    : 0;
   return (
     <>
-      <Polyline positions={coords} color="#f97316" weight={5} opacity={0.85} />
-      {lastReachedIdx >= 0 && stops[lastReachedIdx] && (
-        // Green overlay up to last reached stop (approximation)
-        <Polyline
-          positions={coords.slice(0, Math.floor(coords.length * (lastReachedIdx + 1) / stops.length))}
-          color="#22c55e"
-          weight={5}
-          opacity={0.9}
-        />
+      <Polyline positions={coords} color="#f97316" weight={5} opacity={0.8} />
+      {splitAt > 0 && (
+        <Polyline positions={coords.slice(0, splitAt)} color="#22c55e" weight={5} opacity={0.9} />
       )}
     </>
   );
 }
 
-export default function TripMap({
-  stops = [],
-  route,
-  userLocation,
-  selectedStop,
-  onStopSelect,
-  onLongPress,
-  darkMode,
-}) {
+const TripMap = forwardRef(function TripMap(
+  { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode },
+  mapRef
+) {
   const nextStop = stops.find(s => !s.reached);
-
-  const lightTiles = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-  const darkTiles = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-  const tileUrl = darkMode ? darkTiles : lightTiles;
+  const tileUrl = darkMode
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
   const attribution = darkMode
     ? '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
     : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
   const defaultCenter = stops.length > 0
     ? [stops[0].lat, stops[0].lng]
-    : userLocation || [39.5, -98.35]; // center of US
+    : userLocation || [39.5, -98.35];
 
   return (
     <MapContainer
@@ -146,21 +149,45 @@ export default function TripMap({
     >
       <TileLayer url={tileUrl} attribution={attribution} />
       <RouteLayer stops={stops} route={route} />
-      <MapController stops={stops} route={route} userLocation={userLocation} fitOnMount />
+      <MapInitialFit stops={stops} userLocation={userLocation} />
       <LongPressHandler onLongPress={onLongPress} />
+      <MapRefCapture ref={mapRef} stops={stops} />
 
       {userLocation && (
         <Marker position={userLocation} icon={makeLocationIcon()} />
       )}
 
-      {stops.map((stop, idx) => (
-        <Marker
-          key={stop.id}
-          position={[stop.lat, stop.lng]}
-          icon={makeStopIcon(stop, idx, stop.id === nextStop?.id)}
-          eventHandlers={{ click: () => onStopSelect(stop) }}
-        />
-      ))}
+      <MarkerClusterGroup
+        chunkedLoading
+        maxClusterRadius={60}
+        spiderfyOnMaxZoom
+        showCoverageOnHover={false}
+        iconCreateFunction={cluster => {
+          const count = cluster.getChildCount();
+          return L.divIcon({
+            html: `<div style="
+              width:40px;height:40px;border-radius:50%;
+              background:#f97316;color:#fff;font-weight:700;font-size:14px;
+              display:flex;align-items:center;justify-content:center;
+              border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);
+            ">${count}</div>`,
+            className: '',
+            iconSize: [40, 40],
+            iconAnchor: [20, 40],
+          });
+        }}
+      >
+        {stops.map((stop, idx) => (
+          <Marker
+            key={stop.id}
+            position={[stop.lat, stop.lng]}
+            icon={makeStopIcon(stop, idx, stop.id === nextStop?.id)}
+            eventHandlers={{ click: () => onStopSelect(stop) }}
+          />
+        ))}
+      </MarkerClusterGroup>
     </MapContainer>
   );
-}
+});
+
+export default TripMap;

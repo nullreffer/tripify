@@ -4,6 +4,7 @@ import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
 import TripWorkspace from './pages/TripWorkspace.jsx';
+import Settings from './pages/Settings.jsx';
 
 export const AuthContext = createContext(null);
 
@@ -59,6 +60,10 @@ function App() {
           <Route
             path="/trips/:id"
             element={user ? <TripWorkspace /> : <Navigate to="/login" replace />}
+          />
+          <Route
+            path="/settings"
+            element={user ? <Settings /> : <Navigate to="/login" replace />}
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

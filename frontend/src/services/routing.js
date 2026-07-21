@@ -30,9 +30,15 @@ export async function getRoute(stops) {
   }
 }
 
-export function formatDistance(meters) {
+export function formatDistance(meters, units = 'imperial') {
   if (meters == null) return '';
-  if (meters < 1000) return `${Math.round(meters)} m`;
+  if (units === 'metric') {
+    if (meters < 1000) return `${Math.round(meters)} m`;
+    const km = meters / 1000;
+    return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+  }
+  // imperial
+  if (meters < 500) return `${Math.round(meters * 3.28084)} ft`;
   const miles = meters / 1609.34;
   return miles < 10 ? `${miles.toFixed(1)} mi` : `${Math.round(miles)} mi`;
 }

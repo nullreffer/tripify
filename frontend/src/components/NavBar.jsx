@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App.jsx';
 import CamperLogo from '../assets/logo.svg';
 
@@ -6,6 +7,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 
 function NavBar() {
   const { user, setUser } = useAuth();
+  const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
@@ -93,9 +95,15 @@ function NavBar() {
           </button>
         </div>
         <nav className="drawer-nav">
-          <a href="/" className="drawer-link active" onClick={() => setDrawerOpen(false)}>
+          <a href="/" className="drawer-link" onClick={() => setDrawerOpen(false)}>
             🗺️ My Trips
           </a>
+          <button
+            className="drawer-link"
+            onClick={() => { setDrawerOpen(false); navigate('/settings'); }}
+          >
+            ⚙️ Settings
+          </button>
         </nav>
       </div>
     </>
