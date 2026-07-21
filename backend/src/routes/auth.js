@@ -3,6 +3,9 @@ const passport = require('passport');
 
 const router = express.Router();
 
+// FRONTEND_URL may be comma-separated (CORS list) — use only the first for redirects
+const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+
 router.get(
   '/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
@@ -11,10 +14,10 @@ router.get(
 router.get(
   '/google/callback',
   passport.authenticate('google', {
-    failureRedirect: `${process.env.FRONTEND_URL}/login?error=auth_failed`
+    failureRedirect: `${appUrl}/login?error=auth_failed`
   }),
   (req, res) => {
-    res.redirect(process.env.FRONTEND_URL);
+    res.redirect(appUrl);
   }
 );
 

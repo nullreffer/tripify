@@ -7,7 +7,7 @@ const SUGGESTIONS = [
   'Are there any safety tips for our destinations?',
   'Suggest local foods to try at each stop',
   'What should we pack for this trip?',
-  'What's the weather typically like in these areas?',
+  "What's the weather typically like in these areas?",
   'Any tips for road tripping with a camper van?',
 ];
 
