@@ -1,121 +1,36 @@
-<<<<<<< HEAD
 /**
  * GET /api/places/nearby
  *
- * Proxies a nearby-POI search to Nominatim (OpenStreetMap) — no API key required.
+ * Unified nearby-POI search endpoint supporting two backends:
+ *   - Nominatim (OpenStreetMap) when `q` param is provided — no API key required.
+ *     Used by the Android Auto companion app.
+ *   - Google Places API when `category` param is provided — requires GOOGLE_PLACES_API_KEY.
+ *     Used by the web frontend.
  *
- * Query params:
- *   q       {string}  Search term, e.g. "Costco" or "gas station"
- *   lat     {number}  Centre latitude
- *   lng     {number}  Centre longitude
- *   radius  {number}  Search radius in miles (default 10)
- *   limit   {number}  Max results to return (default 5, max 10)
+ * GET /api/places/search
+ *   Google Places text search for the web frontend map.
  */
 const express = require('express');
 const https = require('https');
-=======
-const express = require('express');
->>>>>>> origin/main
 const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
 
 const router = express.Router();
 
-<<<<<<< HEAD
+const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
+
 // Nominatim usage policy: set a descriptive User-Agent
 const USER_AGENT = 'Tripify-Android/1.0 (https://github.com/nullreffer/tripify)';
 
-// Limit place searches to 30 per minute per authenticated user IP
-const searchRateLimit = rateLimit({
-=======
-const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
-
 /**
  * Rate limiter for Places API proxy routes.
- * Limits each authenticated user to 30 requests per minute to prevent
- * excessive Google Places API usage.
+ * Limits each authenticated user to 30 requests per minute.
  */
 const placesRateLimit = rateLimit({
->>>>>>> origin/main
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-<<<<<<< HEAD
-  message: { error: 'Too many search requests, please slow down.' }
-});
-
-function nominatimRequest(url) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(new Error('Invalid JSON from Nominatim'));
-        }
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('Search request timed out')); });
-  });
-}
-
-// Convert miles → degrees (approximate, good enough for small radii)
-function milesToDegrees(miles) {
-  return miles / 69.0;
-}
-
-router.get('/nearby', searchRateLimit, requireAuth, async (req, res, next) => {
-  try {
-    const { q, lat, lng, radius = '10', limit = '5' } = req.query;
-
-    if (!q || !lat || !lng) {
-      return res.status(400).json({ error: 'q, lat, and lng are required' });
-    }
-
-    const latNum = parseFloat(lat);
-    const lngNum = parseFloat(lng);
-    const radiusNum = Math.min(parseFloat(radius) || 10, 100);
-    const limitNum = Math.min(parseInt(limit, 10) || 5, 10);
-
-    if (isNaN(latNum) || isNaN(lngNum)) {
-      return res.status(400).json({ error: 'lat and lng must be numbers' });
-    }
-
-    const degRadius = milesToDegrees(radiusNum);
-    const viewbox = [
-      lngNum - degRadius,
-      latNum + degRadius,
-      lngNum + degRadius,
-      latNum - degRadius
-    ].join(',');
-
-    const params = new URLSearchParams({
-      q: `${q} near ${latNum},${lngNum}`,
-      format: 'json',
-      limit: String(limitNum),
-      viewbox,
-      bounded: '1',
-      addressdetails: '1'
-    });
-
-    const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
-    const results = await nominatimRequest(url);
-
-    const places = (Array.isArray(results) ? results : []).map(item => ({
-      id: item.place_id?.toString() ?? item.osm_id?.toString() ?? `${item.lat}-${item.lon}-${encodeURIComponent(q)}`,
-      name: item.display_name?.split(',')[0]?.trim() ?? q,
-      lat: parseFloat(item.lat),
-      lng: parseFloat(item.lon),
-      address: item.display_name ?? null
-    }));
-
-    res.json(places);
-  } catch (err) { next(err); }
-=======
   keyGenerator: (req) => req.user?.id || req.ip,
   message: { error: 'Too many requests. Please slow down.' },
 });
@@ -159,37 +74,106 @@ function normalizePlace(place) {
   };
 }
 
-// GET /api/places/nearby?lat=&lng=&category=&radius=
-router.get('/nearby', placesRateLimit, requireAuth, async (req, res) => {
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) return res.json([]);
+function nominatimRequest(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error('Invalid JSON from Nominatim'));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(8000, () => { req.destroy(); reject(new Error('Search request timed out')); });
+  });
+}
 
-  const { lat, lng, category, radius = 5000 } = req.query;
-  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng are required' });
+// Convert miles → degrees (approximate, good enough for small radii)
+function milesToDegrees(miles) {
+  return miles / 69.0;
+}
 
-  const type = GOOGLE_PLACE_TYPES[category];
-  if (!type) return res.json([]);
-
+// GET /api/places/nearby
+// - ?q=&lat=&lng=&radius=&limit=  → Nominatim search (Android Auto)
+// - ?lat=&lng=&category=&radius=  → Google Places search (web frontend)
+router.get('/nearby', placesRateLimit, requireAuth, async (req, res, next) => {
   try {
-    const params = new URLSearchParams({
+    const { q, lat, lng, category, radius = '5000', limit = '5' } = req.query;
+
+    if (!lat || !lng) {
+      return res.status(400).json({ error: 'lat and lng are required' });
+    }
+
+    // Nominatim path: Android Auto sends a free-text query (`q`)
+    if (q) {
+      const latNum = parseFloat(lat);
+      const lngNum = parseFloat(lng);
+      const radiusMiles = Math.min(parseFloat(radius) || 10, 100);
+      const limitNum = Math.min(parseInt(limit, 10) || 5, 10);
+
+      if (isNaN(latNum) || isNaN(lngNum)) {
+        return res.status(400).json({ error: 'lat and lng must be numbers' });
+      }
+
+      const degRadius = milesToDegrees(radiusMiles);
+      const viewbox = [
+        lngNum - degRadius,
+        latNum + degRadius,
+        lngNum + degRadius,
+        latNum - degRadius
+      ].join(',');
+
+      const params = new URLSearchParams({
+        q: `${q} near ${latNum},${lngNum}`,
+        format: 'json',
+        limit: String(limitNum),
+        viewbox,
+        bounded: '1',
+        addressdetails: '1'
+      });
+
+      const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+      const results = await nominatimRequest(url);
+
+      const places = (Array.isArray(results) ? results : []).map(item => ({
+        id: item.place_id?.toString() ?? item.osm_id?.toString() ?? `${item.lat}-${item.lon}-${encodeURIComponent(q)}`,
+        name: item.display_name?.split(',')[0]?.trim() ?? q,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon),
+        address: item.display_name ?? null
+      }));
+
+      return res.json(places);
+    }
+
+    // Google Places path: web frontend sends a `category` param
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) return res.json([]);
+
+    const type = GOOGLE_PLACE_TYPES[category];
+    if (!type) return res.json([]);
+
+    const googleParams = new URLSearchParams({
       location: `${lat},${lng}`,
       radius: String(radius),
       type,
       key: apiKey,
     });
-    const response = await fetch(`${PLACES_BASE}/nearbysearch/json?${params}`, {
+    const response = await fetch(`${PLACES_BASE}/nearbysearch/json?${googleParams}`, {
       signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) return res.json([]);
     const data = await response.json();
-    const results = (data.results || [])
+    const googleResults = (data.results || [])
       .map(p => normalizePlace(p))
       .filter(Boolean)
       .slice(0, 20);
-    res.json(results);
-  } catch {
-    res.json([]);
-  }
+    return res.json(googleResults);
+  } catch (err) { next(err); }
 });
 
 // GET /api/places/search?q=&north=&south=&east=&west=&lat=&lng=
@@ -227,7 +211,6 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
   } catch {
     res.json([]);
   }
->>>>>>> origin/main
 });
 
 module.exports = router;
