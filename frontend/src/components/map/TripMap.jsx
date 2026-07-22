@@ -45,6 +45,18 @@ function makeLocationIcon() {
   return L.divIcon({ html, className: '', iconSize: [18, 18], iconAnchor: [9, 9] });
 }
 
+function makeSearchIcon(isSelected) {
+  const bg = isSelected ? '#7c3aed' : '#3b82f6';
+  const html = `<div style="
+    width:30px;height:30px;border-radius:50%;
+    background:${bg};border:3px solid #fff;
+    box-shadow:0 2px 8px rgba(0,0,0,.4);
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;cursor:pointer;
+  ">🔍</div>`;
+  return L.divIcon({ html, className: '', iconSize: [30, 30], iconAnchor: [15, 30], popupAnchor: [0, -32] });
+}
+
 // Exposes imperative map control methods to parent via ref
 const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
   const map = useMap();
@@ -125,7 +137,8 @@ function RouteLayer({ stops, route }) {
 }
 
 const TripMap = forwardRef(function TripMap(
-  { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode },
+  { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode,
+    searchPins = [], onSearchPinSelect, searchSelectedId },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -186,6 +199,16 @@ const TripMap = forwardRef(function TripMap(
           />
         ))}
       </MarkerClusterGroup>
+
+      {/* Search result pins — rendered outside cluster group so they're visually distinct */}
+      {searchPins.map(pin => (
+        <Marker
+          key={`search-${pin.id}`}
+          position={[pin.lat, pin.lng]}
+          icon={makeSearchIcon(pin.id === searchSelectedId)}
+          eventHandlers={{ click: () => onSearchPinSelect?.(pin) }}
+        />
+      ))}
     </MapContainer>
   );
 });

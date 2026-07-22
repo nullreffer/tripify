@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTrip } from '../hooks/useTrip.js';
 import { getRoute, formatDistance, formatDuration } from '../services/routing.js';
 import { getSettings, useSettingsListener } from '../services/settings.js';
+import { searchNearby } from '../services/geocoding.js';
 import TripMap from '../components/map/TripMap.jsx';
 import StopList from '../components/stops/StopList.jsx';
 import StopSheet from '../components/stops/StopSheet.jsx';
@@ -43,6 +44,14 @@ export default function TripWorkspace() {
   const [userLocation, setUserLocation] = useState(null);
   const [settings, setSettings] = useState(getSettings());
   const [darkMode, setDarkMode] = useState(() => resolveMapStyle(getSettings().mapStyle));
+
+  // Map area search mode
+  const [mapSearchMode, setMapSearchMode] = useState(false);
+  const [mapSearchQuery, setMapSearchQuery] = useState('');
+  const [mapSearchResults, setMapSearchResults] = useState([]);
+  const [mapSearching, setMapSearching] = useState(false);
+  const [selectedSearchPin, setSelectedSearchPin] = useState(null);
+  const mapSearchDebounce = useRef(null);
 
   // Listen for settings changes
   useEffect(() => {
@@ -107,13 +116,79 @@ export default function TripWorkspace() {
   }, []);
 
   const handleSearchArea = useCallback(() => {
-    const center = mapRef.current?.getCenter();
-    if (center) {
-      setShowSearch({ prefill: { lat: center.lat, lng: center.lng, name: 'Current area' } });
-    } else {
-      setShowSearch(true);
-    }
+    setActiveTab('map');
+    setMapSearchMode(true);
+    setMapSearchResults([]);
+    setSelectedSearchPin(null);
+    setMapSearchQuery('');
   }, []);
+
+  const handleMapSearchQuery = useCallback((val) => {
+    setMapSearchQuery(val);
+    clearTimeout(mapSearchDebounce.current);
+    if (val.length < 2) { setMapSearchResults([]); return; }
+    mapSearchDebounce.current = setTimeout(async () => {
+      setMapSearching(true);
+      const bounds = mapRef.current?.getBounds();
+      const leafletBounds = bounds ? {
+        north: bounds.getNorth(), south: bounds.getSouth(),
+        east:  bounds.getEast(),  west:  bounds.getWest(),
+      } : null;
+      const results = await searchNearby(val, leafletBounds);
+      setMapSearchResults(results);
+      setMapSearching(false);
+    }, 500);
+  }, []);
+
+  const exitMapSearch = useCallback(() => {
+    setMapSearchMode(false);
+    setMapSearchQuery('');
+    setMapSearchResults([]);
+    setSelectedSearchPin(null);
+    clearTimeout(mapSearchDebounce.current);
+  }, []);
+
+  // Guess a pin type from Nominatim category/type
+  function guessPinType(result) {
+    const cat = result.category || '';
+    const type = result.type || '';
+    if (cat === 'amenity' && ['fuel', 'charging_station'].includes(type)) return 'GAS_STATION';
+    if (cat === 'amenity' && ['charging_station'].includes(type)) return 'EV_CHARGER';
+    if (cat === 'amenity' && ['restaurant', 'cafe', 'fast_food', 'bar', 'food_court', 'ice_cream'].includes(type)) return 'RESTAURANT';
+    if (cat === 'tourism' && ['camp_site', 'caravan_site'].includes(type)) return 'CAMPGROUND';
+    if (cat === 'tourism' && ['hotel', 'motel', 'hostel', 'guest_house', 'apartment', 'chalet'].includes(type)) return 'HOTEL';
+    if (cat === 'tourism' || cat === 'leisure' || cat === 'natural') return 'ATTRACTION';
+    if (cat === 'aeroway') return 'AIRPORT';
+    if (cat === 'amenity' && type === 'parking') return 'PARKING';
+    return 'GENERAL';
+  }
+
+  const handleAddSearchPin = useCallback(async (pin) => {
+    const beforeAdd = [...stops]; // snapshot before adding
+    const newStop = await tripData.addStop({
+      name: pin.name,
+      address: pin.displayName,
+      lat: pin.lat,
+      lng: pin.lng,
+      pinType: guessPinType(pin),
+      notes: '',
+    });
+    // Insert after nearest existing stop
+    if (beforeAdd.length > 0 && newStop) {
+      const nearestIdx = beforeAdd.reduce((best, s, i) => {
+        const d = Math.hypot(s.lat - pin.lat, s.lng - pin.lng);
+        return d < best.d ? { i, d } : best;
+      }, { i: 0, d: Infinity }).i;
+      const newOrder = [
+        ...beforeAdd.slice(0, nearestIdx + 1),
+        newStop,
+        ...beforeAdd.slice(nearestIdx + 1),
+      ];
+      await tripData.reorderStops(newOrder);
+    }
+    exitMapSearch();
+    setSelectedStop(newStop);
+  }, [stops, tripData, exitMapSearch]);
 
   const handleFindTrails = useCallback(() => {
     const center = mapRef.current?.getCenter();
@@ -176,6 +251,9 @@ export default function TripWorkspace() {
             onStopSelect={stop => { setSelectedStop(stop); setActiveTab('map'); }}
             onLongPress={handleLongPress}
             darkMode={darkMode}
+            searchPins={mapSearchResults}
+            onSearchPinSelect={pin => setSelectedSearchPin(pin)}
+            searchSelectedId={selectedSearchPin?.id}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -189,13 +267,60 @@ export default function TripWorkspace() {
             <button className="map-ctrl-btn" title="Fit trip" onClick={handleFitTrip}>
               <span className="map-ctrl-icon">⊡</span>
             </button>
-            <button className="map-ctrl-btn map-ctrl-search" title="Search this area" onClick={handleSearchArea}>
-              <span className="map-ctrl-icon">🔍</span>
+            <button
+              className={`map-ctrl-btn map-ctrl-search${mapSearchMode ? ' map-ctrl-active' : ''}`}
+              title={mapSearchMode ? 'Exit search' : 'Search this area'}
+              onClick={mapSearchMode ? exitMapSearch : handleSearchArea}
+            >
+              <span className="map-ctrl-icon">{mapSearchMode ? '✕' : '🔍'}</span>
             </button>
             <button className="map-ctrl-btn map-ctrl-trails" title="Find trails on AllTrails" onClick={handleFindTrails}>
               <span className="map-ctrl-icon">🥾</span>
             </button>
           </div>
+
+          {/* ── Map search bar ── */}
+          {mapSearchMode && (
+            <div className="ws-map-search-bar">
+              <button className="ws-mapsearch-back" onClick={exitMapSearch} aria-label="Close search">←</button>
+              <input
+                className="ws-mapsearch-input"
+                autoFocus
+                value={mapSearchQuery}
+                onChange={e => handleMapSearchQuery(e.target.value)}
+                placeholder="Search this area (e.g. Costco, gas station…)"
+              />
+              {mapSearching && <div className="spinner xs" />}
+            </div>
+          )}
+
+          {/* ── Selected search pin info card ── */}
+          {selectedSearchPin && (
+            <div className="ws-search-pin-card">
+              <div className="ws-spc-handle" />
+              <button className="ws-spc-close" onClick={() => setSelectedSearchPin(null)} aria-label="Close">×</button>
+              <div className="ws-spc-name">{selectedSearchPin.name}</div>
+              {(selectedSearchPin.category || selectedSearchPin.type) && (
+                <div className="ws-spc-type">{selectedSearchPin.type || selectedSearchPin.category}</div>
+              )}
+              <div className="ws-spc-addr">{selectedSearchPin.displayName}</div>
+              {selectedSearchPin.extratags?.opening_hours && (
+                <div className="ws-spc-detail">⏰ <span>{selectedSearchPin.extratags.opening_hours}</span></div>
+              )}
+              {selectedSearchPin.extratags?.phone && (
+                <div className="ws-spc-detail">📞 <a href={`tel:${selectedSearchPin.extratags.phone}`}>{selectedSearchPin.extratags.phone}</a></div>
+              )}
+              {selectedSearchPin.extratags?.website && (
+                <div className="ws-spc-detail">🌐 <a href={selectedSearchPin.extratags.website} target="_blank" rel="noopener noreferrer">Website</a></div>
+              )}
+              <button
+                className="btn-primary ws-spc-add"
+                onClick={() => handleAddSearchPin(selectedSearchPin)}
+              >
+                + Add to Route
+              </button>
+            </div>
+          )}
 
           {/* ── Next stop strip (map tab only) ── */}
           {activeTab === 'map' && nextStop && (
