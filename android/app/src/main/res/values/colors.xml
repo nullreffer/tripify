@@ -1,0 +1,10 @@
+<resources>
+    <color name="colorPrimary">#F97316</color>
+    <color name="colorPrimaryDark">#EA6C0C</color>
+    <color name="colorAccent">#3B82F6</color>
+    <color name="colorBackground">#1E293B</color>
+    <color name="colorSurface">#334155</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
+    <color name="colorGreen">#22C55E</color>
+    <color name="colorOrange">#F97316</color>
+</resources>

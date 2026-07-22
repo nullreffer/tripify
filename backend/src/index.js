@@ -18,6 +18,7 @@ const aiRoutes = require('./routes/ai');
 const dayRoutes = require('./routes/days');
 const reservationRoutes = require('./routes/reservations');
 const importRoutes = require('./routes/import');
+const placesRoutes = require('./routes/places');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -78,6 +79,7 @@ app.use('/api/trips/:tripId/reservations', reservationRoutes);
 app.use('/api/trips/:tripId/import', importRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/invites', inviteRouter);
+app.use('/api/places', placesRoutes);
 
 // Global error handler
 app.use((err, _req, res, _next) => {
