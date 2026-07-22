@@ -63,13 +63,11 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy backend
-        working-directory: backend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --service 57b8404b-3047-4d28-9638-9974f577cc8c --detach
 
       - name: Deploy frontend
-        working-directory: frontend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --service 9ecf6865-587b-4f1f-9c12-1d54a9ff5086 --detach
