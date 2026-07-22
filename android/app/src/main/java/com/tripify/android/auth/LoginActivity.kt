@@ -62,8 +62,9 @@ class LoginActivity : AppCompatActivity() {
     private fun handleOAuthCallback() {
         authManager.onOAuthCallbackReceived()
         // Return to MainActivity
-        val intent = Intent(this, Class.forName("com.tripify.android.MainActivity"))
-        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        val intent = Intent(carContext, com.tripify.android.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
         startActivity(intent)
         finish()
     }

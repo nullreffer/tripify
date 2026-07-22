@@ -12,12 +12,22 @@
  */
 const express = require('express');
 const https = require('https');
+const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
 
 const router = express.Router();
 
 // Nominatim usage policy: set a descriptive User-Agent
 const USER_AGENT = 'Tripify-Android/1.0 (https://github.com/nullreffer/tripify)';
+
+// Limit place searches to 30 per minute per authenticated user IP
+const searchRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many search requests, please slow down.' }
+});
 
 function nominatimRequest(url) {
   return new Promise((resolve, reject) => {
@@ -33,7 +43,7 @@ function nominatimRequest(url) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('Nominatim timeout')); });
+    req.setTimeout(8000, () => { req.destroy(); reject(new Error('Search request timed out')); });
   });
 }
 
@@ -42,7 +52,7 @@ function milesToDegrees(miles) {
   return miles / 69.0;
 }
 
-router.get('/nearby', requireAuth, async (req, res, next) => {
+router.get('/nearby', searchRateLimit, requireAuth, async (req, res, next) => {
   try {
     const { q, lat, lng, radius = '10', limit = '5' } = req.query;
 

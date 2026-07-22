@@ -45,7 +45,10 @@ class VoiceScreen(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val repository = TripifyRepository(TripifyApp.instance.apiClient)
-    private val tts = android.speech.tts.TextToSpeech(carContext) {}
+    private val tts = android.speech.tts.TextToSpeech(carContext) { status ->
+        ttsReady = (status == android.speech.tts.TextToSpeech.SUCCESS)
+    }
+    private var ttsReady = false
 
     private var state: VoiceState = VoiceState.IDLE
     private var statusText = carContext.getString(R.string.voice_tap_to_speak)
@@ -180,7 +183,9 @@ class VoiceScreen(
                     invalidate()
 
                     // Speak the reply aloud
-                    tts.speak(response.reply, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "reply")
+                    if (ttsReady) {
+                        tts.speak(response.reply, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "reply")
+                    }
 
                     // Execute any structured actions
                     response.actions.forEach { executeAction(it) }
@@ -211,7 +216,7 @@ class VoiceScreen(
                     ).onSuccess { newStop ->
                         stops = stops + newStop
                         // Briefly announce the addition
-                        tts.speak(
+                        if (ttsReady) tts.speak(
                             "Added $name to your trip.",
                             android.speech.tts.TextToSpeech.QUEUE_ADD, null, "add_stop"
                         )
@@ -240,13 +245,13 @@ class VoiceScreen(
                         ).getOrElse { emptyList() }
 
                         if (places.isEmpty()) {
-                            tts.speak(
+                            if (ttsReady) tts.speak(
                                 "I couldn't find any $query nearby.",
                                 android.speech.tts.TextToSpeech.QUEUE_ADD, null, "search_none"
                             )
                         } else {
                             val closest = places.first()
-                            tts.speak(
+                            if (ttsReady) tts.speak(
                                 "Found ${closest.name}. Say 'add it to the route' to add it.",
                                 android.speech.tts.TextToSpeech.QUEUE_ADD, null, "search_found"
                             )
@@ -262,8 +267,14 @@ class VoiceScreen(
     }
 
     private fun cleanUp() {
+    private var ttsShutDown = false
+
+    private fun cleanUp() {
         recognizer?.destroy()
         recognizer = null
-        tts.shutdown()
+        if (!ttsShutDown) {
+            ttsShutDown = true
+            tts.shutdown()
+        }
     }
 }

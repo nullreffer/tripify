@@ -1,12 +1,22 @@
 const express = require('express');
 const passport = require('passport');
+const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
+
+// Limit OAuth initiation to 10 attempts per 15 minutes per IP
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later.' }
+});
 
 // FRONTEND_URL may be comma-separated (CORS list) — use only the first for redirects
 const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
-router.get('/google', (req, res, next) => {
+router.get('/google', authRateLimit, (req, res, next) => {
   // mobile=true signals the Android app — store flag in session so the callback
   // can redirect to the tripify:// deep-link instead of the web frontend.
   if (req.query.mobile === 'true') {

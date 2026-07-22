@@ -145,7 +145,7 @@ router.post('/', requireAuth, async (req, res, next) => {
         // Android Auto mode: short spoken reply + optional structured actions.
         // The stop IDs below come from real trip data so the app can act on them.
         const stopList = stops.map(s => `  { "id": "${s.id}", "name": "${s.name}", "reached": ${s.reached} }`).join('\n');
-        const autoSystemPrompt = `You are a driving assistant for the Azitrip trip app running in Android Auto.
+        const autoSystemPrompt = `You are a driving assistant for the Tripify trip app running in Android Auto.
 The driver is using voice commands. Reply in 1-2 short sentences suitable for text-to-speech.
 
 Trip context:
