@@ -36,6 +36,8 @@ model Trip {
   itemCategories ItemCategory[]
   references     ExternalReference[]
   aiMessages     AiMessage[]
+  days           TripDay[]
+  reservations   Reservation[]
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 }
@@ -100,6 +102,7 @@ model Stop {
   reached    Boolean   @default(false)
   reachedAt  DateTime?
   metadata   Json?
+  dayEntries DayEntry[]
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 }
@@ -122,6 +125,11 @@ model TripItem {
   done       Boolean      @default(false)
   color      String?
   order      Int          @default(0)
+  quantity   Float?
+  unit       String?
+  notes      String?
+  required   Boolean      @default(false)
+  status     String       @default("have")
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 }
@@ -145,5 +153,82 @@ model AiMessage {
   role      String
   content   String
   createdAt DateTime @default(now())
+}
+
+// ── Days / Itinerary ──────────────────────────────────────────────────────────
+
+enum ShowerStatus {
+  YES
+  NO
+  UNKNOWN
+}
+
+enum EntryType {
+  ACTIVITY
+  TRAVEL
+  ACCOMMODATION
+  NOTE
+}
+
+model TripDay {
+  id        String       @id @default(cuid())
+  tripId    String
+  trip      Trip         @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  date      DateTime?
+  title     String?
+  location  String?
+  notes     String?
+  shower    ShowerStatus @default(UNKNOWN)
+  order     Int          @default(0)
+  entries   DayEntry[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model DayEntry {
+  id           String       @id @default(cuid())
+  dayId        String
+  day          TripDay      @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  type         EntryType
+  title        String
+  description  String?
+  startTime    String?
+  endTime      String?
+  durationMins Int?
+  order        Int          @default(0)
+  fromLocation String?
+  toLocation   String?
+  stopId       String?
+  stop         Stop?        @relation(fields: [stopId], references: [id], onDelete: SetNull)
+  reservation  Reservation?
+  metadata     Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model Reservation {
+  id                   String    @id @default(cuid())
+  tripId               String
+  trip                 Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  entryId              String?   @unique
+  entry                DayEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  name                 String
+  provider             String?
+  confirmationNumber   String?
+  referenceNumber      String?
+  url                  String?
+  phone                String?
+  checkIn              DateTime?
+  checkOut             DateTime?
+  siteNumber           String?
+  roomNumber           String?
+  loop                 String?
+  holder               String?
+  cost                 String?
+  cancellationDeadline DateTime?
+  notes                String?
+  isPrimary            Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 

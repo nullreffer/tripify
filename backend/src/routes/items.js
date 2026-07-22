@@ -88,7 +88,7 @@ router.post('/categories/:catId/items', requireAuth, async (req, res, next) => {
     const trip = await requireTripAccess(req.params.tripId, req.user.id, true);
     if (!trip) return res.status(403).json({ error: 'Not found or insufficient permissions' });
 
-    const { name, color } = req.body;
+    const { name, color, quantity, unit, notes: itemNotes, required, status } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
 
     const max = await prisma.tripItem.aggregate({
@@ -99,6 +99,11 @@ router.post('/categories/:catId/items', requireAuth, async (req, res, next) => {
         categoryId: req.params.catId,
         name: name.trim(),
         color: color || null,
+        quantity: quantity != null ? Number(quantity) : null,
+        unit: unit?.trim() || null,
+        notes: itemNotes?.trim() || null,
+        required: required === true,
+        status: status || 'have',
         order: (max._max.order ?? -1) + 1
       }
     });
@@ -112,13 +117,18 @@ router.put('/items/:itemId', requireAuth, async (req, res, next) => {
     const trip = await requireTripAccess(req.params.tripId, req.user.id, true);
     if (!trip) return res.status(403).json({ error: 'Not found or insufficient permissions' });
 
-    const { name, done, color } = req.body;
+    const { name, done, color, quantity, unit, notes: itemNotes, required, status } = req.body;
     const item = await prisma.tripItem.update({
       where: { id: req.params.itemId },
       data: {
         name: name?.trim(),
         done: done !== undefined ? Boolean(done) : undefined,
-        color: color !== undefined ? color : undefined
+        color: color !== undefined ? color : undefined,
+        quantity: quantity !== undefined ? (quantity != null ? Number(quantity) : null) : undefined,
+        unit: unit !== undefined ? (unit?.trim() || null) : undefined,
+        notes: itemNotes !== undefined ? (itemNotes?.trim() || null) : undefined,
+        required: required !== undefined ? Boolean(required) : undefined,
+        status: status !== undefined ? status : undefined
       }
     });
     res.json(item);

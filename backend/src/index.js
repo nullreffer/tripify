@@ -15,6 +15,8 @@ const stopRoutes = require('./routes/stops');
 const itemRoutes = require('./routes/items');
 const referenceRoutes = require('./routes/references');
 const aiRoutes = require('./routes/ai');
+const dayRoutes = require('./routes/days');
+const reservationRoutes = require('./routes/reservations');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -70,6 +72,8 @@ app.use('/api/trips/:tripId/stops', stopRoutes);
 app.use('/api/trips/:tripId/items', itemRoutes);
 app.use('/api/trips/:tripId/references', referenceRoutes);
 app.use('/api/trips/:tripId/ai', aiRoutes);
+app.use('/api/trips/:tripId/days', dayRoutes);
+app.use('/api/trips/:tripId/reservations', reservationRoutes);
 app.use('/api/invites', inviteRouter);
 
 // Global error handler

@@ -10,10 +10,13 @@ import SearchSheet from '../components/stops/SearchSheet.jsx';
 import ItemsView from '../components/items/ItemsView.jsx';
 import AiView from '../components/ai/AiView.jsx';
 import MoreView from '../components/more/MoreView.jsx';
+import DaysView from '../components/days/DaysView.jsx';
+import TodayView from '../components/days/TodayView.jsx';
 
 const TABS = [
   { key: 'map',   label: 'Map',   icon: '🗺️' },
   { key: 'stops', label: 'Stops', icon: '📍' },
+  { key: 'days',  label: 'Days',  icon: '📅' },
   { key: 'items', label: 'Items', icon: '✅' },
   { key: 'ai',    label: 'AI',    icon: '✨' },
   { key: 'more',  label: 'More',  icon: '⋯' },
@@ -29,10 +32,11 @@ export default function TripWorkspace() {
   const { id } = useParams();
   const navigate = useNavigate();
   const tripData = useTrip(id);
-  const { trip, stops, categories, references, loading, error, saveState } = tripData;
+  const { trip, stops, categories, references, days, reservations, loading, error, saveState } = tripData;
 
   const mapRef = useRef(null);
   const [activeTab, setActiveTab] = useState('map');
+  const [activeSubTab, setActiveSubTab] = useState('itinerary');
   const [selectedStop, setSelectedStop] = useState(null);
   const [showSearch, setShowSearch] = useState(false);
   const [route, setRoute] = useState(null);
@@ -259,6 +263,46 @@ export default function TripWorkspace() {
                 onAdd={() => setShowSearch(true)}
               />
             )}
+            {activeTab === 'days' && (
+              <div className="ws-days-wrap">
+                <div className="ws-days-tabs">
+                  <button
+                    className={`ws-days-subtab${!activeSubTab || activeSubTab === 'itinerary' ? ' active' : ''}`}
+                    onClick={() => setActiveSubTab('itinerary')}
+                  >
+                    📅 Itinerary
+                  </button>
+                  <button
+                    className={`ws-days-subtab${activeSubTab === 'today' ? ' active' : ''}`}
+                    onClick={() => setActiveSubTab('today')}
+                  >
+                    ☀️ Today
+                  </button>
+                </div>
+                {(!activeSubTab || activeSubTab === 'itinerary') && (
+                  <DaysView
+                    days={days}
+                    tripId={id}
+                    onAddDay={tripData.addDay}
+                    onUpdateDay={tripData.updateDay}
+                    onDeleteDay={tripData.deleteDay}
+                    onAddEntry={tripData.addEntry}
+                    onUpdateEntry={tripData.updateEntry}
+                    onDeleteEntry={tripData.deleteEntry}
+                    onAddReservation={tripData.addReservation}
+                    onUpdateReservation={tripData.updateReservation}
+                  />
+                )}
+                {activeSubTab === 'today' && (
+                  <TodayView
+                    days={days}
+                    reservations={reservations}
+                    stops={stops}
+                    onNavigate={tab => setActiveTab(tab)}
+                  />
+                )}
+              </div>
+            )}
             {activeTab === 'items' && (
               <ItemsView
                 categories={categories}
@@ -279,10 +323,14 @@ export default function TripWorkspace() {
                 stops={stops}
                 route={route}
                 references={references}
+                days={days}
+                reservations={reservations}
+                categories={categories}
                 units={units}
                 onAddReference={tripData.addReference}
                 onDeleteReference={tripData.deleteReference}
                 onUpdateTrip={tripData.updateTrip}
+                onNavigate={tab => setActiveTab(tab)}
               />
             )}
           </div>

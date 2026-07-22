@@ -1,6 +1,34 @@
 import React, { useState } from 'react';
 import { ITEM_COLORS } from '../../constants/pinTypes.js';
 
+const ITEM_STATUSES = [
+  { key: 'need_to_buy',  label: 'Need to Buy',  icon: '🛒', color: '#ef4444' },
+  { key: 'have',         label: 'Have',          icon: '📦', color: '#94a3b8' },
+  { key: 'need_to_pack', label: 'Need to Pack',  icon: '🎒', color: '#f97316' },
+  { key: 'packed',       label: 'Packed',        icon: '✅', color: '#22c55e' },
+  { key: 'used',         label: 'Used',          icon: '🗑', color: '#64748b' },
+];
+
+function nextStatus(current) {
+  const keys = ITEM_STATUSES.map(s => s.key);
+  const idx = keys.indexOf(current);
+  return keys[(idx + 1) % keys.length];
+}
+
+function StatusBadge({ status, onClick }) {
+  const s = ITEM_STATUSES.find(x => x.key === status) || ITEM_STATUSES[1];
+  return (
+    <button
+      className="item-status-btn"
+      style={{ color: s.color }}
+      onClick={onClick}
+      title={`Status: ${s.label} (click to cycle)`}
+    >
+      {s.icon}
+    </button>
+  );
+}
+
 function ColorDot({ color, selected, onClick }) {
   return (
     <button
@@ -16,6 +44,10 @@ function ItemRow({ item, catId, onUpdate, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(item.name);
   const [showColors, setShowColors] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
+
+  const status = item.status || 'have';
+  const isPacked = status === 'packed' || item.done;
 
   const saveEdit = async () => {
     if (name.trim() && name !== item.name) {
@@ -25,29 +57,38 @@ function ItemRow({ item, catId, onUpdate, onDelete }) {
   };
 
   return (
-    <div className={`item-row${item.done ? ' item-done' : ''}`}>
-      <button
-        className={`item-check${item.done ? ' checked' : ''}`}
-        style={item.color && item.color !== 'none' ? { borderColor: item.color, background: item.done ? item.color : 'transparent' } : {}}
-        onClick={() => onUpdate(catId, item.id, { done: !item.done })}
-      >
-        {item.done && '✓'}
-      </button>
+    <div className={`item-row${isPacked ? ' item-done' : ''}`}>
+      <StatusBadge
+        status={status}
+        onClick={() => {
+          const ns = nextStatus(status);
+          onUpdate(catId, item.id, { status: ns, done: ns === 'packed' });
+        }}
+      />
 
-      {editing ? (
-        <input
-          className="item-edit-input"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onBlur={saveEdit}
-          onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(false); }}
-          autoFocus
-        />
-      ) : (
-        <span className="item-name" onDoubleClick={() => setEditing(true)} onClick={() => onUpdate(catId, item.id, { done: !item.done })}>
-          {item.name}
-        </span>
-      )}
+      <div className="item-main">
+        {editing ? (
+          <input
+            className="item-edit-input"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onBlur={saveEdit}
+            onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(false); }}
+            autoFocus
+          />
+        ) : (
+          <span className="item-name" onDoubleClick={() => setEditing(true)}>
+            {item.name}
+            {item.required && <span className="item-required-badge" title="Required">*</span>}
+          </span>
+        )}
+        <div className="item-meta">
+          {item.quantity != null && (
+            <span className="item-qty">{item.quantity}{item.unit ? ` ${item.unit}` : ''}</span>
+          )}
+          {item.notes && <span className="item-notes-preview">{item.notes}</span>}
+        </div>
+      </div>
 
       <div className="item-row-actions">
         {showColors && (
@@ -69,14 +110,14 @@ function ItemRow({ item, catId, onUpdate, onDelete }) {
 function CategorySection({ cat, onAddItem, onUpdateItem, onDeleteItem, onDeleteCategory, canEdit }) {
   const [newItemName, setNewItemName] = useState('');
   const [open, setOpen] = useState(true);
-  const done = cat.items?.filter(i => i.done).length || 0;
+  const packed = cat.items?.filter(i => i.status === 'packed' || i.done).length || 0;
   const total = cat.items?.length || 0;
 
   const addItem = async () => {
     const n = newItemName.trim();
     if (!n) return;
     setNewItemName('');
-    await onAddItem(cat.id, n);
+    await onAddItem(cat.id, { name: n });
   };
 
   return (
@@ -84,7 +125,7 @@ function CategorySection({ cat, onAddItem, onUpdateItem, onDeleteItem, onDeleteC
       <div className="cat-header" onClick={() => setOpen(o => !o)}>
         <span className="cat-toggle">{open ? '▾' : '▸'}</span>
         <span className="cat-name">{cat.name}</span>
-        <span className="cat-progress">{done}/{total}</span>
+        <span className="cat-progress">{packed}/{total} packed</span>
         {canEdit && (
           <button className="cat-del-btn" onClick={e => { e.stopPropagation(); if (confirm(`Delete "${cat.name}"?`)) onDeleteCategory(cat.id); }}>×</button>
         )}
@@ -119,7 +160,7 @@ function CategorySection({ cat, onAddItem, onUpdateItem, onDeleteItem, onDeleteC
 export default function ItemsView({ categories, onAddCategory, onDeleteCategory, onAddItem, onUpdateItem, onDeleteItem, canEdit }) {
   const [newCatName, setNewCatName] = useState('');
   const [showAddCat, setShowAddCat] = useState(false);
-  const totalDone = categories.reduce((s, c) => s + (c.items?.filter(i => i.done).length || 0), 0);
+  const totalDone = categories.reduce((s, c) => s + (c.items?.filter(i => i.status === 'packed' || i.done).length || 0), 0);
   const totalItems = categories.reduce((s, c) => s + (c.items?.length || 0), 0);
 
   const addCat = async () => {

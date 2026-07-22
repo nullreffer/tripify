@@ -4,7 +4,113 @@ import { formatDistance, formatDuration } from '../../services/routing.js';
 const REF_TYPES = ['GOOGLE_SHEET', 'BOOKING', 'DOCUMENT', 'LINK', 'OTHER'];
 const REF_ICONS = { GOOGLE_SHEET: '📊', BOOKING: '🏨', DOCUMENT: '📄', LINK: '🔗', OTHER: '📎' };
 
-export default function MoreView({ trip, stops, route, references, onAddReference, onDeleteReference, onUpdateTrip }) {
+// ── Readiness Dashboard ───────────────────────────────────────────────────────
+function ReadinessDashboard({ stops, days, reservations, categories, route, onNavigate }) {
+  const totalStops = stops.length;
+  const reachedStops = stops.filter(s => s.reached).length;
+
+  // Schedule conflicts: entries on same day with overlapping times
+  const conflicts = [];
+  for (const day of days) {
+    const timed = (day.entries || []).filter(e => e.startTime && e.endTime);
+    for (let i = 0; i < timed.length - 1; i++) {
+      for (let j = i + 1; j < timed.length; j++) {
+        const aEnd = timed[i].endTime;
+        const bStart = timed[j].startTime;
+        if (aEnd > bStart) {
+          conflicts.push({ day, a: timed[i], b: timed[j] });
+        }
+      }
+    }
+  }
+
+  // Nights without accommodation
+  const nightsWithoutAccommodation = days.filter(d =>
+    !(d.entries || []).some(e => e.type === 'ACCOMMODATION')
+  ).length;
+
+  // Packing progress
+  const totalItems = categories.reduce((s, c) => s + (c.items?.length || 0), 0);
+  const packedItems = categories.reduce((s, c) =>
+    s + (c.items?.filter(i => i.status === 'packed' || i.done).length || 0), 0);
+  const packingPct = totalItems > 0 ? Math.round((packedItems / totalItems) * 100) : null;
+
+  // Shower streak without shower
+  let noShowerStreak = 0;
+  for (const d of days) {
+    if (d.shower === 'YES') break;
+    if (d.shower === 'NO') noShowerStreak++;
+  }
+
+  const items = [
+    {
+      icon: '🗺',
+      label: 'Route',
+      value: totalStops > 0 ? `${totalStops} stops planned` : 'No stops yet',
+      status: totalStops > 0 ? 'ok' : 'warn',
+      tab: 'stops',
+    },
+    {
+      icon: '📅',
+      label: 'Schedule',
+      value: conflicts.length > 0 ? `${conflicts.length} conflict${conflicts.length > 1 ? 's' : ''}` : 'No conflicts',
+      status: conflicts.length > 0 ? 'warn' : 'ok',
+      tab: 'days',
+    },
+    {
+      icon: '🏕',
+      label: 'Accommodations',
+      value: nightsWithoutAccommodation > 0
+        ? `${nightsWithoutAccommodation} night${nightsWithoutAccommodation > 1 ? 's' : ''} without accommodation`
+        : days.length > 0 ? 'All nights covered' : 'No days planned',
+      status: nightsWithoutAccommodation > 0 ? 'warn' : 'ok',
+      tab: 'days',
+    },
+    {
+      icon: '📋',
+      label: 'Packing',
+      value: packingPct !== null ? `${packingPct}% packed` : 'No items',
+      status: packingPct !== null && packingPct < 80 ? 'warn' : 'ok',
+      tab: 'items',
+    },
+    ...(noShowerStreak >= 3 ? [{
+      icon: '🚿',
+      label: 'Showers',
+      value: `No shower planned for ${noShowerStreak} days`,
+      status: 'warn',
+      tab: 'days',
+    }] : []),
+    {
+      icon: '📍',
+      label: 'Progress',
+      value: totalStops > 0 ? `${reachedStops} of ${totalStops} stops reached` : 'Trip not started',
+      status: 'ok',
+      tab: 'map',
+    },
+  ];
+
+  return (
+    <div className="readiness-dashboard">
+      <h3>Trip Readiness</h3>
+      {items.map((item, i) => (
+        <button
+          key={i}
+          className={`readiness-row readiness-${item.status}`}
+          onClick={() => onNavigate && onNavigate(item.tab)}
+        >
+          <span className="readiness-icon">{item.icon}</span>
+          <div className="readiness-body">
+            <span className="readiness-label">{item.label}</span>
+            <span className="readiness-value">{item.value}</span>
+          </div>
+          <span className="readiness-indicator">{item.status === 'ok' ? '✓' : '⚠️'}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onNavigate }) {
   const [editingTrip, setEditingTrip] = useState(false);
   const [title, setTitle] = useState(trip?.title || '');
   const [description, setDescription] = useState(trip?.description || '');
@@ -36,6 +142,16 @@ export default function MoreView({ trip, stops, route, references, onAddReferenc
 
   return (
     <div className="more-view">
+      {/* Readiness Dashboard */}
+      <ReadinessDashboard
+        stops={stops}
+        days={days || []}
+        reservations={reservations || []}
+        categories={categories || []}
+        route={route}
+        onNavigate={onNavigate}
+      />
+
       {/* Trip Info */}
       <div className="more-section">
         <div className="more-section-hd">

@@ -6,12 +6,20 @@ const prisma = new PrismaClient();
 const router = express.Router({ mergeParams: true });
 
 // Build trip context string for AI
-function buildTripContext(trip, stops, categories) {
+function buildTripContext(trip, stops, categories, days, reservations) {
+  const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : null;
+  const fmtTime = (t) => {
+    if (!t) return null;
+    const [h, m] = t.split(':');
+    const hour = Number(h);
+    return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
+  };
+
   const lines = [
     `Trip: "${trip.title}"`,
     trip.description ? `Description: ${trip.description}` : null,
-    trip.startDate ? `Start date: ${new Date(trip.startDate).toDateString()}` : null,
-    trip.endDate ? `End date: ${new Date(trip.endDate).toDateString()}` : null,
+    trip.startDate ? `Start date: ${fmt(trip.startDate)}` : null,
+    trip.endDate ? `End date: ${fmt(trip.endDate)}` : null,
     '',
     `Stops (${stops.length} total):`,
     ...stops.map((s, i) => {
@@ -20,21 +28,62 @@ function buildTripContext(trip, stops, categories) {
         s.address ? `   Address: ${s.address}` : null,
         s.targetDate ? `   Target: ${new Date(s.targetDate).toLocaleString()}` : null,
         s.notes ? `   Notes: ${s.notes}` : null,
-        s.metadata && Object.keys(s.metadata).length > 0
-          ? `   Details: ${JSON.stringify(s.metadata)}`
-          : null
       ].filter(Boolean);
       return parts.join('\n');
     }),
-    '',
-    categories.length > 0 ? `Packing/Items:` : null,
-    ...categories.map(cat => [
-      `  ${cat.name}:`,
-      ...cat.items.map(item => `    ${item.done ? '✓' : '○'} ${item.name}`)
-    ].join('\n')),
-  ].filter(line => line !== null);
+  ];
 
-  return lines.join('\n');
+  if (days.length > 0) {
+    lines.push('', `Daily Itinerary (${days.length} days):`);
+    for (const day of days) {
+      lines.push(`\n${fmt(day.date) || 'Day (no date)'} — ${day.location || 'Location TBD'}`);
+      if (day.shower === 'YES') lines.push('  🚿 Shower available');
+      if (day.shower === 'NO') lines.push('  🚿 No shower');
+      for (const e of (day.entries || [])) {
+        const time = e.startTime ? fmtTime(e.startTime) : '';
+        const dur = e.durationMins ? ` (${Math.floor(e.durationMins/60)}h ${e.durationMins%60}m)` : '';
+        if (e.type === 'TRAVEL') {
+          lines.push(`  🚗 ${time} Travel: ${e.fromLocation || ''} → ${e.toLocation || ''}${dur}`);
+        } else if (e.type === 'ACCOMMODATION') {
+          const res = e.reservation;
+          lines.push(`  🏕 ${time} Stay: ${e.title}`);
+          if (res) {
+            if (res.siteNumber) lines.push(`     Site: ${res.siteNumber}${res.loop ? ` Loop ${res.loop}` : ''}`);
+            if (res.confirmationNumber) lines.push(`     Confirmation: ${res.confirmationNumber}`);
+          }
+        } else {
+          lines.push(`  ${e.type === 'ACTIVITY' ? '🥾' : '📝'} ${time} ${e.title}${dur}`);
+        }
+        if (e.description) lines.push(`     Notes: ${e.description}`);
+      }
+    }
+  }
+
+  if (reservations.length > 0) {
+    lines.push('', `Reservations (${reservations.length}):`);
+    for (const r of reservations) {
+      lines.push(`  - ${r.name}`);
+      if (r.provider) lines.push(`    Provider: ${r.provider}`);
+      if (r.checkIn) lines.push(`    Check-in: ${fmt(r.checkIn)}`);
+      if (r.checkOut) lines.push(`    Check-out: ${fmt(r.checkOut)}`);
+      if (r.confirmationNumber) lines.push(`    Confirmation: ${r.confirmationNumber}`);
+      if (r.siteNumber) lines.push(`    Site: ${r.siteNumber}${r.loop ? ` Loop ${r.loop}` : ''}`);
+    }
+  }
+
+  if (categories.length > 0) {
+    lines.push('', `Packing/Items:`);
+    for (const cat of categories) {
+      lines.push(`  ${cat.name}:`);
+      for (const item of cat.items) {
+        const packed = item.status === 'packed' || item.done;
+        const qty = item.quantity ? ` (${item.quantity}${item.unit ? ` ${item.unit}` : ''})` : '';
+        lines.push(`    ${packed ? '✓' : '○'} ${item.name}${qty} [${item.status || 'have'}]`);
+      }
+    }
+  }
+
+  return lines.filter(l => l !== null).join('\n');
 }
 
 // POST /api/trips/:tripId/ai
@@ -55,13 +104,19 @@ router.post('/', requireAuth, async (req, res, next) => {
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
 
     // Fetch context
-    const [stops, categories] = await Promise.all([
+    const [stops, categories, days, reservations] = await Promise.all([
       prisma.stop.findMany({ where: { tripId: req.params.tripId }, orderBy: { order: 'asc' } }),
       prisma.itemCategory.findMany({
         where: { tripId: req.params.tripId },
         orderBy: { order: 'asc' },
         include: { items: { orderBy: { order: 'asc' } } }
-      })
+      }),
+      prisma.tripDay.findMany({
+        where: { tripId: req.params.tripId },
+        orderBy: { order: 'asc' },
+        include: { entries: { orderBy: { order: 'asc' }, include: { reservation: true } } }
+      }),
+      prisma.reservation.findMany({ where: { tripId: req.params.tripId }, orderBy: { checkIn: 'asc' } })
     ]);
 
     // Save user message
@@ -78,7 +133,7 @@ router.post('/', requireAuth, async (req, res, next) => {
       const genAI = new GoogleGenerativeAI(GEMINI_KEY);
       const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-      const tripContext = buildTripContext(trip, stops, categories);
+      const tripContext = buildTripContext(trip, stops, categories, days, reservations);
       const systemPrompt = `You are a helpful trip assistant for the travel app Azitrip. 
 You have access to the following trip information:
 
