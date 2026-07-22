@@ -98,17 +98,17 @@ function milesToDegrees(miles) {
 }
 
 // GET /api/places/nearby
-// - ?q=&lat=&lng=&radius=&limit=  → Nominatim search (Android Auto)
-// - ?lat=&lng=&category=&radius=  → Google Places search (web frontend)
+// - ?q=&lat=&lng=&radius=&limit=  → Nominatim search (Android Auto); radius in miles, default 10
+// - ?lat=&lng=&category=&radius=  → Google Places search (web frontend); radius in metres, default 5000
 router.get('/nearby', placesRateLimit, requireAuth, async (req, res, next) => {
   try {
-    const { q, lat, lng, category, radius = '5000', limit = '5' } = req.query;
+    const { q, lat, lng, category, radius, limit = '5' } = req.query;
 
     if (!lat || !lng) {
       return res.status(400).json({ error: 'lat and lng are required' });
     }
 
-    // Nominatim path: Android Auto sends a free-text query (`q`)
+    // Nominatim path: Android Auto sends a free-text query (`q`); radius is in miles
     if (q) {
       const latNum = parseFloat(lat);
       const lngNum = parseFloat(lng);
@@ -150,7 +150,7 @@ router.get('/nearby', placesRateLimit, requireAuth, async (req, res, next) => {
       return res.json(places);
     }
 
-    // Google Places path: web frontend sends a `category` param
+    // Google Places path: web frontend sends a `category` param; radius is in metres
     const apiKey = process.env.GOOGLE_PLACES_API_KEY;
     if (!apiKey) return res.json([]);
 
@@ -159,7 +159,7 @@ router.get('/nearby', placesRateLimit, requireAuth, async (req, res, next) => {
 
     const googleParams = new URLSearchParams({
       location: `${lat},${lng}`,
-      radius: String(radius),
+      radius: String(radius || '5000'),
       type,
       key: apiKey,
     });
