@@ -305,6 +305,9 @@ export default function TripWorkspace() {
                 <div className="ws-spc-type">{selectedSearchPin.type || selectedSearchPin.category}</div>
               )}
               <div className="ws-spc-addr">{selectedSearchPin.displayName}</div>
+              {selectedSearchPin.extratags?.rating != null && (
+                <div className="ws-spc-detail">⭐ <span>{selectedSearchPin.extratags.rating}{selectedSearchPin.extratags.user_ratings_total ? ` (${selectedSearchPin.extratags.user_ratings_total} reviews)` : ''}</span></div>
+              )}
               {selectedSearchPin.extratags?.opening_hours && (
                 <div className="ws-spc-detail">⏰ <span>{selectedSearchPin.extratags.opening_hours}</span></div>
               )}

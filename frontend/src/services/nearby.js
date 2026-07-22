@@ -1,4 +1,7 @@
+import { mergeResults } from './poiUtils.js';
+
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 const CATEGORY_TAGS = {
   gas:        'amenity=fuel',
@@ -23,7 +26,7 @@ export const NEARBY_CATEGORIES = [
   { key: 'attraction', label: 'Sights', emoji: '🎡' },
 ];
 
-export async function nearbySearch(lat, lng, category, radiusMeters = 5000) {
+async function osmNearbySearch(lat, lng, category, radiusMeters) {
   const tag = CATEGORY_TAGS[category];
   if (!tag) return [];
   const [key, val] = tag.split('=');
@@ -37,13 +40,40 @@ export async function nearbySearch(lat, lng, category, radiusMeters = 5000) {
     if (!res.ok) return [];
     const data = await res.json();
     return (data.elements || []).map(el => ({
-      id: el.id,
+      id: `osm-${el.id}`,
       name: el.tags?.name || el.tags?.brand || `${category} (${el.type})`,
       lat: el.lat ?? el.center?.lat,
       lng: el.lon ?? el.center?.lon,
-      tags: el.tags || {}
+      tags: el.tags || {},
+      source: 'osm',
     })).filter(el => el.lat != null && el.lng != null);
   } catch {
     return [];
   }
+}
+
+async function googleNearbySearch(lat, lng, category, radiusMeters) {
+  try {
+    const params = new URLSearchParams({ lat, lng, category, radius: radiusMeters });
+    const res = await fetch(`${API_BASE}/api/places/nearby?${params}`, {
+      credentials: 'include',
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function nearbySearch(lat, lng, category, radiusMeters = 5000) {
+  const [osmResult, googleResult] = await Promise.allSettled([
+    osmNearbySearch(lat, lng, category, radiusMeters),
+    googleNearbySearch(lat, lng, category, radiusMeters),
+  ]);
+
+  const osm = osmResult.status === 'fulfilled' ? osmResult.value : [];
+  const google = googleResult.status === 'fulfilled' ? googleResult.value : [];
+
+  return mergeResults(osm, google);
 }
