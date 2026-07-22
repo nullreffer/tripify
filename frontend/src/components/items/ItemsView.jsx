@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ITEM_COLORS } from '../../constants/pinTypes.js';
+
+const API = import.meta.env.VITE_API_URL || '';
 
 const ITEM_STATUSES = [
   { key: 'need_to_buy',  label: 'Need to Buy',  icon: '🛒', color: '#ef4444' },
@@ -157,9 +159,12 @@ function CategorySection({ cat, onAddItem, onUpdateItem, onDeleteItem, onDeleteC
   );
 }
 
-export default function ItemsView({ categories, onAddCategory, onDeleteCategory, onAddItem, onUpdateItem, onDeleteItem, canEdit }) {
+export default function ItemsView({ categories, tripId, onAddCategory, onDeleteCategory, onAddItem, onUpdateItem, onDeleteItem, canEdit }) {
   const [newCatName, setNewCatName] = useState('');
   const [showAddCat, setShowAddCat] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState('');
+  const fileRef = useRef(null);
   const totalDone = categories.reduce((s, c) => s + (c.items?.filter(i => i.status === 'packed' || i.done).length || 0), 0);
   const totalItems = categories.reduce((s, c) => s + (c.items?.length || 0), 0);
 
@@ -171,6 +176,34 @@ export default function ItemsView({ categories, onAddCategory, onDeleteCategory,
     await onAddCategory(n);
   };
 
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportStatus('Asking AI to parse your packing list…');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API}/api/trips/${tripId}/import/items`, {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Import failed');
+      setImportStatus(`Created ${data.categoriesCreated} lists!`);
+      // Force a page reload of categories by triggering a window event the hook can react to
+      window.dispatchEvent(new CustomEvent('items-imported', { detail: data.categories }));
+      setTimeout(() => setImportStatus(''), 2000);
+    } catch (err) {
+      setImportStatus(`Error: ${err.message}`);
+      setTimeout(() => setImportStatus(''), 4000);
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
   return (
     <div className="items-view">
       <div className="items-header">
@@ -179,9 +212,18 @@ export default function ItemsView({ categories, onAddCategory, onDeleteCategory,
           {totalItems > 0 && <div className="items-progress">{totalDone}/{totalItems} packed</div>}
         </div>
         {canEdit && (
-          <button className="btn-primary btn-sm" onClick={() => setShowAddCat(true)}>+ List</button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="btn-secondary btn-sm" title="Import from spreadsheet" onClick={() => fileRef.current?.click()} disabled={importing}>
+              {importing ? '…' : '📊'}
+            </button>
+            <button className="btn-primary btn-sm" onClick={() => setShowAddCat(true)}>+ List</button>
+          </div>
         )}
       </div>
+
+      {/* Hidden file input for import */}
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.ods,.tsv" style={{ display: 'none' }} onChange={handleImportFile} />
+      {importStatus && <div className="items-import-status">{importStatus}</div>}
 
       {showAddCat && (
         <div className="add-cat-form">
@@ -202,7 +244,14 @@ export default function ItemsView({ categories, onAddCategory, onDeleteCategory,
       {categories.length === 0 ? (
         <div className="items-empty">
           <span>No lists yet</span>
-          {canEdit && <button className="btn-primary" onClick={() => setShowAddCat(true)}>Create a list</button>}
+          {canEdit && (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <button className="btn-primary" onClick={() => setShowAddCat(true)}>Create a list</button>
+              <button className="btn-secondary" onClick={() => fileRef.current?.click()} disabled={importing}>
+                {importing ? 'Importing…' : '📊 Import from spreadsheet'}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="items-categories">

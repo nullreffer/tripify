@@ -23,9 +23,70 @@ export async function searchLocations(query) {
   }
 }
 
-// Search for POIs near a given map viewport; bounds = {north,south,east,west}
+// Search for POIs near a given map viewport using Overpass API (much better for chain stores / POIs).
+// Falls back to Nominatim when no bounds available.
 export async function searchNearby(query, bounds) {
   if (!query?.trim()) return [];
+  if (bounds) {
+    // Try Overpass first — it has real POI data for chains/brands
+    const overpass = await searchOverpass(query, bounds);
+    if (overpass.length > 0) return overpass;
+    // Fall back to Nominatim biased to the viewport
+    return searchNominatimViewbox(query, bounds);
+  }
+  return searchNominatimViewbox(query, null);
+}
+
+async function searchOverpass(query, bounds) {
+  try {
+    // Overpass bbox: south,west,north,east
+    const bbox = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
+    // Search for nodes, ways, and relations matching the name (case-insensitive regex)
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const ql = `[out:json][timeout:20];
+(
+  nwr["name"~"${escaped}",i](${bbox});
+  nwr["brand"~"${escaped}",i](${bbox});
+  nwr["operator"~"${escaped}",i](${bbox});
+);
+out center 30;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: ql,
+      headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Azitrip/1.0' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.elements || [])
+      .filter(el => el.tags?.name)
+      .slice(0, 30)
+      .map(el => {
+        const lat = el.type === 'node' ? el.lat : el.center?.lat;
+        const lng = el.type === 'node' ? el.lon : el.center?.lon;
+        if (!lat || !lng) return null;
+        const tags = el.tags || {};
+        const hours = tags.opening_hours || null;
+        const phone = tags.phone || tags['contact:phone'] || null;
+        const website = tags.website || tags['contact:website'] || null;
+        return {
+          id: `${el.type}-${el.id}`,
+          name: tags.name,
+          displayName: [tags.name, tags['addr:street'], tags['addr:city'], tags['addr:state']].filter(Boolean).join(', '),
+          lat: parseFloat(lat),
+          lng: parseFloat(lng),
+          type: tags.amenity || tags.shop || tags.tourism || tags.leisure || tags.highway || 'place',
+          category: tags.amenity ? 'amenity' : tags.shop ? 'shop' : tags.tourism ? 'tourism' : 'other',
+          extratags: { opening_hours: hours, phone, website },
+        };
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function searchNominatimViewbox(query, bounds) {
   try {
     const params = new URLSearchParams({
       q: query,
@@ -35,7 +96,6 @@ export async function searchNearby(query, bounds) {
       extratags: '1',
     });
     if (bounds) {
-      // Nominatim viewbox: left,top,right,bottom = minLng,maxLat,maxLng,minLat
       params.set('viewbox', `${bounds.west},${bounds.north},${bounds.east},${bounds.south}`);
       params.set('bounded', '0');
     }

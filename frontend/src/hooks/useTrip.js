@@ -54,6 +54,17 @@ export function useTrip(tripId) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Reload categories when a sheet import completes
+  useEffect(() => {
+    const handler = () => {
+      fetch(`${API}/api/trips/${tripId}/items`, { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => setCategories(Array.isArray(data) ? data : []));
+    };
+    window.addEventListener('items-imported', handler);
+    return () => window.removeEventListener('items-imported', handler);
+  }, [tripId]);
+
   // ── Stop mutations ─────────────────────────────────────────────────────────
 
   const addStop = useCallback(async (stopData) => {

@@ -257,7 +257,8 @@ export default function TripWorkspace() {
           />
 
           {/* ── Map overlay control buttons ── */}
-          <div className="ws-map-controls">
+          {/* Bottom offset increases when next-stop strip (≈100px) is visible to prevent overlap */}
+          <div className="ws-map-controls" style={{ bottom: activeTab === 'map' && nextStop ? '108px' : '12px' }}>
             <button className="map-ctrl-btn" title="Add a stop" onClick={() => setShowSearch(true)}>
               <span className="map-ctrl-icon">+</span>
             </button>
@@ -431,6 +432,7 @@ export default function TripWorkspace() {
             {activeTab === 'items' && (
               <ItemsView
                 categories={categories}
+                tripId={id}
                 onAddCategory={tripData.addCategory}
                 onDeleteCategory={tripData.deleteCategory}
                 onAddItem={tripData.addItem}

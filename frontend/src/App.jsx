@@ -5,6 +5,16 @@ import Dashboard from './pages/Dashboard.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
 import TripWorkspace from './pages/TripWorkspace.jsx';
 import Settings from './pages/Settings.jsx';
+import { getSettings, useSettingsListener } from './services/settings.js';
+
+function applyTheme(mapStyle) {
+  const dark = mapStyle === 'dark' ||
+    (mapStyle === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', dark);
+}
+
+// Apply immediately (before first render) to avoid flash
+applyTheme(getSettings().mapStyle);
 
 export const AuthContext = createContext(null);
 
@@ -17,6 +27,15 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Keep global dark class in sync with settings changes and system theme
+  useEffect(() => {
+    const off = useSettingsListener(s => applyTheme(s.mapStyle));
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const mqHandler = () => applyTheme(getSettings().mapStyle);
+    mq.addEventListener('change', mqHandler);
+    return () => { off(); mq.removeEventListener('change', mqHandler); };
+  }, []);
 
   useEffect(() => {
     fetch(`${API_BASE}/auth/me`, { credentials: 'include' })

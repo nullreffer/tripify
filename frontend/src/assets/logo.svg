@@ -1,4 +1,112 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 84" shape-rendering="crispEdges" role="img" aria-label="Azitrip camper van logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 72" shape-rendering="crispEdges" role="img" aria-label="Azitrip camper van logo">
+  <!-- Retro 8-bit camper van — pixel size = 4px -->
+
+  <!-- Roof rack / luggage top -->
+  <rect x="24" y="4"  width="60" height="4"  fill="#1e293b"/>
+  <rect x="28" y="4"  width="8"  height="4"  fill="#f97316"/>
+  <rect x="40" y="4"  width="8"  height="4"  fill="#f97316"/>
+  <rect x="52" y="4"  width="8"  height="4"  fill="#f97316"/>
+  <rect x="64" y="4"  width="8"  height="4"  fill="#f97316"/>
+  <!-- rack straps -->
+  <rect x="36" y="4"  width="4"  height="4"  fill="#374151"/>
+  <rect x="48" y="4"  width="4"  height="4"  fill="#374151"/>
+  <rect x="60" y="4"  width="4"  height="4"  fill="#374151"/>
+  <rect x="72" y="4"  width="4"  height="4"  fill="#374151"/>
+
+  <!-- Van roof -->
+  <rect x="20" y="8"  width="72" height="4"  fill="#1e293b"/>
+  <rect x="24" y="8"  width="64" height="4"  fill="#fb923c"/>
+
+  <!-- Upper body – windshield + windows strip -->
+  <rect x="12" y="12" width="96" height="16" fill="#1e293b"/>
+  <!-- windshield (front left) -->
+  <rect x="16" y="14" width="16" height="12" fill="#bae6fd"/>
+  <rect x="17" y="15" width="14" height="10" fill="#7dd3fc"/>
+  <!-- cab divide -->
+  <rect x="32" y="12" width="4"  height="16" fill="#1e293b"/>
+  <!-- side window 1 -->
+  <rect x="36" y="14" width="16" height="12" fill="#bae6fd"/>
+  <rect x="37" y="15" width="14" height="10" fill="#7dd3fc"/>
+  <!-- side window 2 -->
+  <rect x="56" y="14" width="16" height="12" fill="#bae6fd"/>
+  <rect x="57" y="15" width="14" height="10" fill="#7dd3fc"/>
+  <!-- rear window -->
+  <rect x="76" y="14" width="12" height="12" fill="#bae6fd"/>
+  <rect x="77" y="15" width="10" height="10" fill="#7dd3fc"/>
+  <!-- right edge (rear panel) -->
+  <rect x="92" y="12" width="8"  height="16" fill="#1e293b"/>
+  <rect x="93" y="14" width="4"  height="12" fill="#f87171"/>
+
+  <!-- Divider stripe -->
+  <rect x="12" y="28" width="96" height="4"  fill="#ea6c0a"/>
+
+  <!-- Lower body orange -->
+  <rect x="12" y="32" width="96" height="12" fill="#f97316"/>
+  <!-- door seams -->
+  <rect x="32" y="32" width="2"  height="12" fill="#ea6c0a"/>
+  <rect x="56" y="32" width="2"  height="12" fill="#ea6c0a"/>
+  <rect x="76" y="32" width="2"  height="12" fill="#ea6c0a"/>
+
+  <!-- Headlight (front) -->
+  <rect x="12" y="36" width="8"  height="8"  fill="#fef08a"/>
+  <rect x="13" y="37" width="6"  height="6"  fill="#fde047"/>
+
+  <!-- Taillight (rear) -->
+  <rect x="100" y="36" width="8" height="8"  fill="#f87171"/>
+  <rect x="101" y="37" width="6" height="6"  fill="#ef4444"/>
+
+  <!-- Van bottom line -->
+  <rect x="12" y="44" width="96" height="4"  fill="#1e293b"/>
+
+  <!-- Front bumper -->
+  <rect x="8"  y="44" width="16" height="4"  fill="#94a3b8"/>
+  <rect x="8"  y="48" width="16" height="2"  fill="#1e293b"/>
+
+  <!-- Rear bumper -->
+  <rect x="96" y="44" width="16" height="4"  fill="#94a3b8"/>
+  <rect x="96" y="48" width="16" height="2"  fill="#1e293b"/>
+
+  <!-- Chassis center -->
+  <rect x="32" y="44" width="56" height="4"  fill="#f97316"/>
+
+  <!-- Wheel wells -->
+  <rect x="20" y="42" width="20" height="6"  fill="#1e293b"/>
+  <rect x="72" y="42" width="20" height="6"  fill="#1e293b"/>
+
+  <!-- Front wheel -->
+  <rect x="16" y="48" width="28" height="20" fill="#1e293b"/>
+  <rect x="18" y="50" width="24" height="16" fill="#111827"/>
+  <rect x="20" y="52" width="20" height="12" fill="#374151"/>
+  <!-- spokes -->
+  <rect x="28" y="50" width="4"  height="16" fill="#64748b"/>
+  <rect x="20" y="57" width="20" height="4"  fill="#64748b"/>
+  <!-- hub -->
+  <rect x="26" y="55" width="8"  height="8"  fill="#94a3b8"/>
+  <rect x="27" y="56" width="6"  height="6"  fill="#cbd5e1"/>
+  <rect x="28" y="57" width="4"  height="4"  fill="#e2e8f0"/>
+
+  <!-- Rear wheel -->
+  <rect x="68" y="48" width="28" height="20" fill="#1e293b"/>
+  <rect x="70" y="50" width="24" height="16" fill="#111827"/>
+  <rect x="72" y="52" width="20" height="12" fill="#374151"/>
+  <!-- spokes -->
+  <rect x="80" y="50" width="4"  height="16" fill="#64748b"/>
+  <rect x="72" y="57" width="20" height="4"  fill="#64748b"/>
+  <!-- hub -->
+  <rect x="78" y="55" width="8"  height="8"  fill="#94a3b8"/>
+  <rect x="79" y="56" width="6"  height="6"  fill="#cbd5e1"/>
+  <rect x="80" y="57" width="4"  height="4"  fill="#e2e8f0"/>
+
+  <!-- Ground shadow -->
+  <rect x="14" y="68" width="28" height="4"  fill="#1e293b" opacity="0.18"/>
+  <rect x="70" y="68" width="28" height="4"  fill="#1e293b" opacity="0.18"/>
+
+  <!-- Pixel exhaust puffs (retro game flair) -->
+  <rect x="0"  y="40" width="8"  height="8"  fill="#e2e8f0" opacity="0.6"/>
+  <rect x="4"  y="36" width="8"  height="8"  fill="#e2e8f0" opacity="0.45"/>
+  <rect x="0"  y="32" width="4"  height="4"  fill="#e2e8f0" opacity="0.25"/>
+</svg>
+
   <!-- Retro pixel-art VW Type 2 Camper Van – Side view -->
 
   <!-- Roof -->

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavBar from '../components/NavBar.jsx';
 import TripCard from '../components/TripCard.jsx';
@@ -15,6 +15,9 @@ function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
   const [inviteTarget, setInviteTarget] = useState(null);
+  const [importMode, setImportMode] = useState(false);
+  const [importStatus, setImportStatus] = useState('');
+  const fileRef = useRef(null);
 
   useEffect(() => {
     fetchTrips();
@@ -62,6 +65,35 @@ function Dashboard() {
   const closeModal = () => {
     setShowModal(false);
     setNewTripTitle('');
+    setImportMode(false);
+    setImportStatus('');
+  };
+
+  const handleImportSheet = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCreating(true);
+    setImportStatus('Reading spreadsheet…');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      setImportStatus('Asking AI to parse your trip data…');
+      const res = await fetch(`${API_BASE}/api/import/trip`, {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Import failed');
+      setImportStatus(`Created "${data.title}" with ${data.stopsCreated} stops!`);
+      await fetchTrips();
+      setTimeout(() => { closeModal(); navigate(`/trips/${data.tripId}`); }, 800);
+    } catch (err) {
+      setError(err.message);
+      setImportStatus('');
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -119,30 +151,66 @@ function Dashboard() {
                 ×
               </button>
             </div>
-            <form onSubmit={handleCreateTrip} className="modal-form">
-              <label htmlFor="trip-title">Trip Name</label>
-              <input
-                id="trip-title"
-                type="text"
-                value={newTripTitle}
-                onChange={e => setNewTripTitle(e.target.value)}
-                placeholder="e.g. Summer in Europe"
-                autoFocus
-                maxLength={100}
-              />
-              <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={closeModal}>
-                  Cancel
+
+            {!importMode ? (
+              <>
+                <form onSubmit={handleCreateTrip} className="modal-form">
+                  <label htmlFor="trip-title">Trip Name</label>
+                  <input
+                    id="trip-title"
+                    type="text"
+                    value={newTripTitle}
+                    onChange={e => setNewTripTitle(e.target.value)}
+                    placeholder="e.g. Summer in Europe"
+                    autoFocus
+                    maxLength={100}
+                  />
+                  <div className="modal-actions">
+                    <button type="button" className="btn-secondary" onClick={closeModal}>
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      disabled={!newTripTitle.trim() || creating}
+                    >
+                      {creating ? 'Creating…' : 'Create Trip'}
+                    </button>
+                  </div>
+                </form>
+                <div className="modal-divider"><span>or</span></div>
+                <button className="modal-import-btn" onClick={() => setImportMode(true)}>
+                  📊 Import from spreadsheet
                 </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={!newTripTitle.trim() || creating}
-                >
-                  {creating ? 'Creating…' : 'Create Trip'}
+              </>
+            ) : (
+              <div className="modal-form">
+                <p className="modal-import-hint">
+                  Upload an Excel or CSV file — AI will read your trip data and create stops automatically.
+                </p>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.ods,.tsv"
+                  style={{ display: 'none' }}
+                  onChange={handleImportSheet}
+                />
+                {importStatus ? (
+                  <div className="modal-import-status">{importStatus}</div>
+                ) : (
+                  <button
+                    className="btn-primary btn-full"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={creating}
+                  >
+                    {creating ? 'Importing…' : '📂 Choose File'}
+                  </button>
+                )}
+                <button className="btn-ghost btn-sm" onClick={() => setImportMode(false)} style={{ marginTop: '8px' }}>
+                  ← Back
                 </button>
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}
