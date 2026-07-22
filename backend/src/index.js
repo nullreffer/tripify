@@ -17,6 +17,7 @@ const referenceRoutes = require('./routes/references');
 const aiRoutes = require('./routes/ai');
 
 const app = express();
+app.set('trust proxy', 1);
 
 const pgPool = new Pool({
   connectionString: process.env.DATABASE_URL,

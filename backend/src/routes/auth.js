@@ -17,7 +17,9 @@ router.get(
     failureRedirect: `${appUrl}/login?error=auth_failed`
   }),
   (req, res) => {
-    res.redirect(appUrl);
+    req.session.save(() => {
+      res.redirect(appUrl);
+    });
   }
 );
 
