@@ -49,6 +49,7 @@ class VoiceScreen(
         ttsReady = (status == android.speech.tts.TextToSpeech.SUCCESS)
     }
     private var ttsReady = false
+    private var ttsShutDown = false
 
     private var state: VoiceState = VoiceState.IDLE
     private var statusText = carContext.getString(R.string.voice_tap_to_speak)
@@ -265,9 +266,6 @@ class VoiceScreen(
             }
         }
     }
-
-    private fun cleanUp() {
-    private var ttsShutDown = false
 
     private fun cleanUp() {
         recognizer?.destroy()

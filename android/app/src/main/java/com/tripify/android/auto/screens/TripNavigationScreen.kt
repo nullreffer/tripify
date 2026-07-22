@@ -201,10 +201,10 @@ class TripNavigationScreen(
         val allLngs = stops.map { it.lng }.toMutableList()
         userLocation?.let { allLats.add(it.latitude); allLngs.add(it.longitude) }
 
-        val minLat = allLats.min()
-        val maxLat = allLats.max()
-        val minLng = allLngs.min()
-        val maxLng = allLngs.max()
+        val minLat = allLats.minOrNull() ?: return
+        val maxLat = allLats.maxOrNull() ?: return
+        val minLng = allLngs.minOrNull() ?: return
+        val maxLng = allLngs.maxOrNull() ?: return
 
         val latRange = if (maxLat - minLat < 0.001) 0.01 else maxLat - minLat
         val lngRange = if (maxLng - minLng < 0.001) 0.01 else maxLng - minLng

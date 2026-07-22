@@ -90,7 +90,7 @@ router.get('/nearby', searchRateLimit, requireAuth, async (req, res, next) => {
     const results = await nominatimRequest(url);
 
     const places = (Array.isArray(results) ? results : []).map(item => ({
-      id: item.place_id?.toString() ?? item.osm_id?.toString() ?? String(Math.random()),
+      id: item.place_id?.toString() ?? item.osm_id?.toString() ?? `${item.lat}-${item.lon}-${encodeURIComponent(q)}`,
       name: item.display_name?.split(',')[0]?.trim() ?? q,
       lat: parseFloat(item.lat),
       lng: parseFloat(item.lon),

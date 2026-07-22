@@ -192,7 +192,7 @@ Return ONLY a valid JSON object — no markdown, no code fences — in this exac
         }
       } else {
         // Standard web mode (unchanged behaviour)
-        const systemPrompt = `You are a helpful trip assistant for the travel app Azitrip. 
+        const systemPrompt = `You are a helpful trip assistant for the travel app Tripify. 
 You have access to the following trip information:
 
 ${tripContext}
