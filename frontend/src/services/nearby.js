@@ -1,3 +1,5 @@
+import { mergeResults } from './poiUtils.js';
+
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -64,39 +66,6 @@ async function googleNearbySearch(lat, lng, category, radiusMeters) {
   }
 }
 
-// Approx distance in metres between two lat/lng pairs
-function distMeters(a, b) {
-  const R = 6371000;
-  const dLat = (b.lat - a.lat) * Math.PI / 180;
-  const dLng = (b.lng - a.lng) * Math.PI / 180;
-  const sinLat = Math.sin(dLat / 2);
-  const sinLng = Math.sin(dLng / 2);
-  const c = sinLat * sinLat +
-    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * sinLng * sinLng;
-  return R * 2 * Math.atan2(Math.sqrt(c), Math.sqrt(1 - c));
-}
-
-// Merge OSM and Google results, preferring Google entries when they represent the same place
-function mergeResults(osmResults, googleResults, dedupeRadiusM = 60) {
-  const merged = [...googleResults];
-  const used = new Set();
-
-  for (const osm of osmResults) {
-    let isDupe = false;
-    for (let i = 0; i < googleResults.length; i++) {
-      if (used.has(i)) continue;
-      if (distMeters(osm, googleResults[i]) < dedupeRadiusM) {
-        isDupe = true;
-        used.add(i);
-        break;
-      }
-    }
-    if (!isDupe) merged.push(osm);
-  }
-
-  return merged;
-}
-
 export async function nearbySearch(lat, lng, category, radiusMeters = 5000) {
   const [osmResult, googleResult] = await Promise.allSettled([
     osmNearbySearch(lat, lng, category, radiusMeters),
@@ -108,4 +77,3 @@ export async function nearbySearch(lat, lng, category, radiusMeters = 5000) {
 
   return mergeResults(osm, google);
 }
-

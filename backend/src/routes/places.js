@@ -5,6 +5,30 @@ const router = express.Router();
 
 const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
 
+// Simple in-process per-user rate limiter: max 30 requests per minute
+const rateLimits = new Map();
+const RATE_WINDOW_MS = 60 * 1000;
+const RATE_MAX = 30;
+
+function isRateLimited(userId) {
+  const now = Date.now();
+  let entry = rateLimits.get(userId);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + RATE_WINDOW_MS };
+  }
+  entry.count += 1;
+  rateLimits.set(userId, entry);
+  return entry.count > RATE_MAX;
+}
+
+// Periodically clean up stale entries to avoid unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimits) {
+    if (now > entry.resetAt) rateLimits.delete(key);
+  }
+}, RATE_WINDOW_MS);
+
 // Map our category keys to Google Places types
 const GOOGLE_PLACE_TYPES = {
   gas:        'gas_station',
@@ -43,6 +67,9 @@ function normalizePlace(place, source = 'google') {
 
 // GET /api/places/nearby?lat=&lng=&category=&radius=
 router.get('/nearby', requireAuth, async (req, res) => {
+  if (isRateLimited(req.user.id)) {
+    return res.status(429).json({ error: 'Too many requests. Please slow down.' });
+  }
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return res.json([]);
 
@@ -76,6 +103,9 @@ router.get('/nearby', requireAuth, async (req, res) => {
 
 // GET /api/places/search?q=&north=&south=&east=&west=&lat=&lng=
 router.get('/search', requireAuth, async (req, res) => {
+  if (isRateLimited(req.user.id)) {
+    return res.status(429).json({ error: 'Too many requests. Please slow down.' });
+  }
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return res.json([]);
 
