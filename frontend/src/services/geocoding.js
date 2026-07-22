@@ -1,4 +1,5 @@
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export async function searchLocations(query) {
   if (!query?.trim()) return [];
@@ -23,18 +24,83 @@ export async function searchLocations(query) {
   }
 }
 
+// Approx distance in metres between two lat/lng pairs
+function distMeters(a, b) {
+  const R = 6371000;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const c = sinLat * sinLat +
+    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * sinLng * sinLng;
+  return R * 2 * Math.atan2(Math.sqrt(c), Math.sqrt(1 - c));
+}
+
+// Merge OSM and Google results, preferring Google entries when they represent the same place
+function mergeResults(osmResults, googleResults, dedupeRadiusM = 60) {
+  const merged = [...googleResults];
+  const usedGoogle = new Set();
+
+  for (const osm of osmResults) {
+    let isDupe = false;
+    for (let i = 0; i < googleResults.length; i++) {
+      if (usedGoogle.has(i)) continue;
+      if (distMeters(osm, googleResults[i]) < dedupeRadiusM) {
+        isDupe = true;
+        usedGoogle.add(i);
+        break;
+      }
+    }
+    if (!isDupe) merged.push(osm);
+  }
+
+  return merged;
+}
+
 // Search for POIs near a given map viewport using Overpass API (much better for chain stores / POIs).
 // Falls back to Nominatim when no bounds available.
+// Also queries Google Places API and merges results.
 export async function searchNearby(query, bounds) {
   if (!query?.trim()) return [];
+
+  const [osmResult, googleResult] = await Promise.allSettled([
+    osmSearchNearby(query, bounds),
+    googlePlacesSearch(query, bounds),
+  ]);
+
+  const osm = osmResult.status === 'fulfilled' ? osmResult.value : [];
+  const google = googleResult.status === 'fulfilled' ? googleResult.value : [];
+
+  return mergeResults(osm, google);
+}
+
+async function osmSearchNearby(query, bounds) {
   if (bounds) {
-    // Try Overpass first — it has real POI data for chains/brands
     const overpass = await searchOverpass(query, bounds);
     if (overpass.length > 0) return overpass;
-    // Fall back to Nominatim biased to the viewport
     return searchNominatimViewbox(query, bounds);
   }
   return searchNominatimViewbox(query, null);
+}
+
+async function googlePlacesSearch(query, bounds) {
+  try {
+    const params = new URLSearchParams({ q: query });
+    if (bounds) {
+      params.set('north', bounds.north);
+      params.set('south', bounds.south);
+      params.set('east', bounds.east);
+      params.set('west', bounds.west);
+    }
+    const res = await fetch(`${API_BASE}/api/places/search?${params}`, {
+      credentials: 'include',
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
 }
 
 async function searchOverpass(query, bounds) {
@@ -78,6 +144,7 @@ out center 30;`;
           type: tags.amenity || tags.shop || tags.tourism || tags.leisure || tags.highway || 'place',
           category: tags.amenity ? 'amenity' : tags.shop ? 'shop' : tags.tourism ? 'tourism' : 'other',
           extratags: { opening_hours: hours, phone, website },
+          source: 'osm',
         };
       })
       .filter(Boolean);
@@ -114,6 +181,7 @@ async function searchNominatimViewbox(query, bounds) {
       type: r.type,
       category: r.class,
       extratags: r.extratags || {},
+      source: 'osm',
     }));
   } catch {
     return [];
@@ -137,3 +205,4 @@ export async function reverseGeocode(lat, lng) {
     return null;
   }
 }
+

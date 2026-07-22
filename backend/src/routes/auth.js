@@ -6,20 +6,28 @@ const router = express.Router();
 // FRONTEND_URL may be comma-separated (CORS list) — use only the first for redirects
 const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
-router.get(
-  '/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
-);
+router.get('/google', (req, res, next) => {
+  // If the user is coming from an invite link, persist the token through the OAuth flow
+  if (req.query.invite) {
+    req.session.pendingInvite = req.query.invite;
+  }
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
 
 router.get(
   '/google/callback',
-  passport.authenticate('google', {
-    failureRedirect: `${appUrl}/login?error=auth_failed`
-  }),
-  (req, res) => {
-    req.session.save(() => {
-      res.redirect(appUrl);
-    });
+  (req, res, next) => {
+    passport.authenticate('google', (err, user, info) => {
+      if (err) return next(err);
+      if (!user) {
+        const msg = info?.message || 'auth_failed';
+        return res.redirect(`${appUrl}/login?error=${encodeURIComponent(msg)}`);
+      }
+      req.logIn(user, (loginErr) => {
+        if (loginErr) return next(loginErr);
+        req.session.save(() => res.redirect(appUrl));
+      });
+    })(req, res, next);
   }
 );
 
@@ -40,3 +48,4 @@ router.post('/logout', (req, res, next) => {
 });
 
 module.exports = router;
+
