@@ -23,7 +23,9 @@ function Login() {
 
         {error && (
           <div className="error-message">
-            Authentication failed. Please try again.
+            {error === 'access_denied'
+              ? 'This app is invite-only. Please use an invite link or contact the owner to request access.'
+              : 'Authentication failed. Please try again.'}
           </div>
         )}
 

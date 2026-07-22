@@ -30,7 +30,8 @@ function InviteAccept() {
     if (!user) {
       // Store token in sessionStorage, redirect to login, come back after
       sessionStorage.setItem('pendingInvite', token);
-      window.location.href = `${API_BASE}/auth/google`;
+      // Pass invite token as query param so the backend can validate it during OAuth
+      window.location.href = `${API_BASE}/auth/google?invite=${encodeURIComponent(token)}`;
       return;
     }
 
