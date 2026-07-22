@@ -1,44 +1,24 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
 
 const router = express.Router();
 
 const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
 
-// In-process per-user rate limiter: max 30 requests per minute
-const rateLimits = new Map();
-const RATE_WINDOW_MS = 60 * 1000;
-const RATE_MAX = 30;
-
-function checkCount(userId) {
-  const now = Date.now();
-  let entry = rateLimits.get(userId);
-  if (!entry || now > entry.resetAt) {
-    entry = { count: 0, resetAt: now + RATE_WINDOW_MS };
-  }
-  entry.count += 1;
-  rateLimits.set(userId, entry);
-  return entry.count;
-}
-
-// Express middleware — must be applied before requireAuth is counted by CodeQL
-function placesRateLimit(req, res, next) {
-  const userId = req.user?.id || req.ip;
-  const count = checkCount(userId);
-  if (count > RATE_MAX) {
-    res.set('Retry-After', String(Math.ceil(RATE_WINDOW_MS / 1000)));
-    return res.status(429).json({ error: 'Too many requests. Please slow down.' });
-  }
-  next();
-}
-
-// Periodically clean up stale entries to avoid unbounded memory growth
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of rateLimits) {
-    if (now > entry.resetAt) rateLimits.delete(key);
-  }
-}, RATE_WINDOW_MS).unref();
+/**
+ * Rate limiter for Places API proxy routes.
+ * Limits each authenticated user to 30 requests per minute to prevent
+ * excessive Google Places API usage.
+ */
+const placesRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many requests. Please slow down.' },
+});
 
 // Map our category keys to Google Places types
 const GOOGLE_PLACE_TYPES = {
@@ -56,7 +36,7 @@ function normalizePlace(place) {
   const lat = place.geometry?.location?.lat;
   const lng = place.geometry?.location?.lng;
   if (lat == null || lng == null) return null;
-  // Show "Open now" / "Closed" instead of the full verbose weekday_text array
+  // Show "Open now" / "Closed" rather than the full verbose weekday_text array
   const openStatus = place.opening_hours?.open_now != null
     ? (place.opening_hours.open_now ? 'Open now' : 'Closed')
     : null;
@@ -80,7 +60,7 @@ function normalizePlace(place) {
 }
 
 // GET /api/places/nearby?lat=&lng=&category=&radius=
-router.get('/nearby', requireAuth, placesRateLimit, async (req, res) => {
+router.get('/nearby', placesRateLimit, requireAuth, async (req, res) => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return res.json([]);
 
@@ -113,7 +93,7 @@ router.get('/nearby', requireAuth, placesRateLimit, async (req, res) => {
 });
 
 // GET /api/places/search?q=&north=&south=&east=&west=&lat=&lng=
-router.get('/search', requireAuth, placesRateLimit, async (req, res) => {
+router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return res.json([]);
 

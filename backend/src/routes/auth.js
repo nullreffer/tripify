@@ -1,12 +1,22 @@
 const express = require('express');
 const passport = require('passport');
+const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
 
 // FRONTEND_URL may be comma-separated (CORS list) — use only the first for redirects
 const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
-router.get('/google', (req, res, next) => {
+// Rate limit Google OAuth initiation by IP to prevent abuse
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again later.' },
+});
+
+router.get('/google', authRateLimit, (req, res, next) => {
   // If the user is coming from an invite link, persist the token through the OAuth flow.
   // Validate it is a non-empty alphanumeric/hyphen string before storing (basic format check).
   const invite = req.query.invite;
@@ -18,6 +28,7 @@ router.get('/google', (req, res, next) => {
 
 router.get(
   '/google/callback',
+  authRateLimit,
   (req, res, next) => {
     passport.authenticate('google', (err, user, info) => {
       if (err) return next(err);

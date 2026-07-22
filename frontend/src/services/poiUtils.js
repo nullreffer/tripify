@@ -12,9 +12,9 @@ export function distMeters(a, b) {
 
 /**
  * Merge OSM and Google results, preferring Google entries when they represent
- * the same place (within dedupeRadiusM metres of each other).
+ * the same place (within dedupeRadiusMeters metres of each other).
  */
-export function mergeResults(osmResults, googleResults, dedupeRadiusM = 60) {
+export function mergeResults(osmResults, googleResults, dedupeRadiusMeters = 60) {
   const merged = [...googleResults];
   const usedGoogle = new Set();
 
@@ -22,7 +22,7 @@ export function mergeResults(osmResults, googleResults, dedupeRadiusM = 60) {
     let isDupe = false;
     for (let i = 0; i < googleResults.length; i++) {
       if (usedGoogle.has(i)) continue;
-      if (distMeters(osm, googleResults[i]) < dedupeRadiusM) {
+      if (distMeters(osm, googleResults[i]) < dedupeRadiusMeters) {
         isDupe = true;
         usedGoogle.add(i);
         break;
