@@ -1,0 +1,46 @@
+#!/bin/sh
+# Gradle start-up script for UN*X
+#
+# Note: Run `gradle wrapper` once inside the android/ directory to generate the
+# binary gradle-wrapper.jar that is required to make this script fully functional.
+# Until then, use `gradle assembleDebug` directly or open the project in Android Studio.
+
+APP_NAME="Gradle"
+APP_BASE_NAME=$(basename "$0")
+
+JAVA_OPTS=""
+MAX_FD="maximum"
+GRADLE_OPTS=""
+
+warn() {
+    echo "$*"
+}
+
+die() {
+    echo
+    echo "$*"
+    echo
+    exit 1
+}
+
+OS_NAME=$(uname 2>/dev/null)
+case "$OS_NAME" in
+    CYGWIN*|MSYS*|MINGW*)
+        abs_path() { echo "$(cd "$1" && pwd -W)"; }
+        ;;
+    *)
+        abs_path() { echo "$(cd "$1" && pwd)"; }
+        ;;
+esac
+
+APP_HOME=$(abs_path "$(dirname "$0")")
+CLASSPATH="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+
+# Determine Java command
+if [ -n "$JAVA_HOME" ]; then
+    JAVACMD="$JAVA_HOME/bin/java"
+else
+    JAVACMD="java"
+fi
+
+"$JAVACMD" $JAVA_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"

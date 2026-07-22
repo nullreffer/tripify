@@ -4,19 +4,24 @@ const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
 
+// Limit OAuth initiation to 10 attempts per 15 minutes per IP
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later.' }
+});
+
 // FRONTEND_URL may be comma-separated (CORS list) — use only the first for redirects
 const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
-// Rate limit Google OAuth initiation by IP to prevent abuse
-const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many login attempts. Please try again later.' },
-});
-
 router.get('/google', authRateLimit, (req, res, next) => {
+  // mobile=true signals the Android app — store flag in session so the callback
+  // can redirect to the tripify:// deep-link instead of the web frontend.
+  if (req.query.mobile === 'true') {
+    req.session.mobileAuth = true;
+  }
   // If the user is coming from an invite link, persist the token through the OAuth flow.
   // Validate it is a non-empty alphanumeric/hyphen string before storing (basic format check).
   const invite = req.query.invite;
@@ -38,9 +43,18 @@ router.get(
       }
       req.logIn(user, (loginErr) => {
         if (loginErr) return next(loginErr);
+        const isMobile = req.session.mobileAuth;
+        delete req.session.mobileAuth;
         // Clear the pending invite token from the session after successful login
         delete req.session.pendingInvite;
-        req.session.save(() => res.redirect(appUrl));
+        req.session.save(() => {
+          if (isMobile) {
+            // Redirect to the Android deep-link so Chrome Custom Tabs hands control back
+            res.redirect('tripify://auth/callback?success=true');
+          } else {
+            res.redirect(appUrl);
+          }
+        });
       });
     })(req, res, next);
   }

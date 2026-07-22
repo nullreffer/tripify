@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Tripify</string>
+    <string name="sign_in_title">Sign in to Tripify</string>
+    <string name="sign_in_instructions">Open the Tripify app on your phone to sign in with Google.</string>
+    <string name="sign_in_button">Sign In on Phone</string>
+    <string name="no_trips">No trips yet. Create one in the Tripify phone app.</string>
+    <string name="loading">Loading…</string>
+    <string name="error_load_trips">Could not load trips. Check your connection.</string>
+    <string name="stops_label">Stops</string>
+    <string name="all_reached">All stops completed!</string>
+    <string name="voice_listening">Listening… speak your request</string>
+    <string name="voice_thinking">Thinking…</string>
+    <string name="voice_tap_to_speak">Tap the mic to speak</string>
+    <string name="mark_reached">Mark Reached</string>
+    <string name="reached_label">Reached ✓</string>
+    <string name="next_stop">Next Stop</string>
+    <string name="navigate">Navigate</string>
+    <string name="voice_assistant">Voice Assistant</string>
+</resources>
