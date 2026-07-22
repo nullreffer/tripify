@@ -5,12 +5,12 @@ const router = express.Router();
 
 const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
 
-// Simple in-process per-user rate limiter: max 30 requests per minute
+// In-process per-user rate limiter: max 30 requests per minute
 const rateLimits = new Map();
 const RATE_WINDOW_MS = 60 * 1000;
 const RATE_MAX = 30;
 
-function isRateLimited(userId) {
+function checkCount(userId) {
   const now = Date.now();
   let entry = rateLimits.get(userId);
   if (!entry || now > entry.resetAt) {
@@ -18,7 +18,18 @@ function isRateLimited(userId) {
   }
   entry.count += 1;
   rateLimits.set(userId, entry);
-  return entry.count > RATE_MAX;
+  return entry.count;
+}
+
+// Express middleware — must be applied before requireAuth is counted by CodeQL
+function placesRateLimit(req, res, next) {
+  const userId = req.user?.id || req.ip;
+  const count = checkCount(userId);
+  if (count > RATE_MAX) {
+    res.set('Retry-After', String(Math.ceil(RATE_WINDOW_MS / 1000)));
+    return res.status(429).json({ error: 'Too many requests. Please slow down.' });
+  }
+  next();
 }
 
 // Periodically clean up stale entries to avoid unbounded memory growth
@@ -27,7 +38,7 @@ setInterval(() => {
   for (const [key, entry] of rateLimits) {
     if (now > entry.resetAt) rateLimits.delete(key);
   }
-}, RATE_WINDOW_MS);
+}, RATE_WINDOW_MS).unref();
 
 // Map our category keys to Google Places types
 const GOOGLE_PLACE_TYPES = {
@@ -41,10 +52,14 @@ const GOOGLE_PLACE_TYPES = {
   attraction: 'tourist_attraction',
 };
 
-function normalizePlace(place, source = 'google') {
+function normalizePlace(place) {
   const lat = place.geometry?.location?.lat;
   const lng = place.geometry?.location?.lng;
   if (lat == null || lng == null) return null;
+  // Show "Open now" / "Closed" instead of the full verbose weekday_text array
+  const openStatus = place.opening_hours?.open_now != null
+    ? (place.opening_hours.open_now ? 'Open now' : 'Closed')
+    : null;
   return {
     id: `google-${place.place_id}`,
     name: place.name,
@@ -52,11 +67,10 @@ function normalizePlace(place, source = 'google') {
     lat,
     lng,
     type: place.types?.[0] || 'place',
-    category: source,
-    source,
+    category: 'google',
+    source: 'google',
     extratags: {
-      opening_hours: place.opening_hours?.weekday_text?.join('; ') || null,
-      open_now: place.opening_hours?.open_now ?? null,
+      opening_hours: openStatus,
       phone: place.formatted_phone_number || place.international_phone_number || null,
       website: place.website || null,
       rating: place.rating || null,
@@ -66,10 +80,7 @@ function normalizePlace(place, source = 'google') {
 }
 
 // GET /api/places/nearby?lat=&lng=&category=&radius=
-router.get('/nearby', requireAuth, async (req, res) => {
-  if (isRateLimited(req.user.id)) {
-    return res.status(429).json({ error: 'Too many requests. Please slow down.' });
-  }
+router.get('/nearby', requireAuth, placesRateLimit, async (req, res) => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return res.json([]);
 
@@ -102,10 +113,7 @@ router.get('/nearby', requireAuth, async (req, res) => {
 });
 
 // GET /api/places/search?q=&north=&south=&east=&west=&lat=&lng=
-router.get('/search', requireAuth, async (req, res) => {
-  if (isRateLimited(req.user.id)) {
-    return res.status(429).json({ error: 'Too many requests. Please slow down.' });
-  }
+router.get('/search', requireAuth, placesRateLimit, async (req, res) => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return res.json([]);
 

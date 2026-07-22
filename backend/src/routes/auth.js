@@ -7,9 +7,11 @@ const router = express.Router();
 const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
 
 router.get('/google', (req, res, next) => {
-  // If the user is coming from an invite link, persist the token through the OAuth flow
-  if (req.query.invite) {
-    req.session.pendingInvite = req.query.invite;
+  // If the user is coming from an invite link, persist the token through the OAuth flow.
+  // Validate it is a non-empty alphanumeric/hyphen string before storing (basic format check).
+  const invite = req.query.invite;
+  if (invite && /^[a-z0-9-]+$/i.test(invite)) {
+    req.session.pendingInvite = invite;
   }
   passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
@@ -25,6 +27,8 @@ router.get(
       }
       req.logIn(user, (loginErr) => {
         if (loginErr) return next(loginErr);
+        // Clear the pending invite token from the session after successful login
+        delete req.session.pendingInvite;
         req.session.save(() => res.redirect(appUrl));
       });
     })(req, res, next);
