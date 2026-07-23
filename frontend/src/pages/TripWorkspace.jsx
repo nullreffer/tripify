@@ -360,7 +360,7 @@ export default function TripWorkspace() {
                 All stops
               </button>
               {availableStopTypes.map(type => {
-                const typeMeta = PIN_TYPES[type] || PIN_TYPES.GENERAL;
+                const typeMeta = PIN_TYPES[type] || PIN_TYPES.GENERAL || { emoji: '📍', label: type };
                 return (
                   <button
                     key={type}

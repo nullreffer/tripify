@@ -23,18 +23,19 @@ const MAX_NON_WRAPAROUND_LNG_SPAN = 180;
 const MAX_RECTANGLE_LAT_SPAN = 90;
 const MIN_COSINE_FOR_LNG_CALCULATION = 0.2;
 
-function clamp(value, min, max) {
+function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
 function parseLatitude(value) {
   const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? clamp(parsed, -90, 90) : null;
+  return Number.isFinite(parsed) ? clampNumber(parsed, -90, 90) : null;
 }
 
 function normalizeLongitude(value) {
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) return null;
+  // Double modulo keeps wrapped negative longitudes in the standard [-180, 180] range.
   const normalized = ((((parsed + 180) % 360) + 360) % 360) - 180;
   return normalized === -180 && parsed > 0 ? 180 : normalized;
 }
@@ -48,7 +49,7 @@ function estimateViewportRadiusMeters(north, south, east, west) {
     MIN_COSINE_FOR_LNG_CALCULATION,
     Math.cos(centerLat * Math.PI / 180)
   );
-  return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), 5000, 50000);
+  return clampNumber(Math.round(Math.max(latMeters, lngMeters) / 2), 5000, 50000);
 }
 
 function buildLocationBias({ north, south, east, west, lat, lng }) {
@@ -80,6 +81,7 @@ function buildLocationBias({ north, south, east, west, lat, lng }) {
     }
 
     const viewportCenterLat = (northNum + southNum) / 2;
+    // Normalize after adding half the wrapped span so antimeridian-crossing bounds land on the intended midpoint.
     const viewportCenterLng = normalizeLongitude(westNum + (lngSpan / 2));
     return {
       circle: {
