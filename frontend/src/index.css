@@ -1081,6 +1081,7 @@ body {
 .stop-row-drag {
   color: var(--text-muted); cursor: grab; user-select: none;
   font-size: .8rem; letter-spacing: -.1em; padding: 0 .2rem;
+  touch-action: none;
 }
 .stop-row-drag:active { cursor: grabbing; }
 .stop-row-num {
