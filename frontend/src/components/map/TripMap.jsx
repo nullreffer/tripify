@@ -2,7 +2,7 @@ import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react
 import { MapContainer, TileLayer, Polyline, Marker, useMap, useMapEvents } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
-import { PIN_TYPES, PIN_TYPE_LIST } from '../../constants/pinTypes.js';
+import { PIN_TYPES } from '../../constants/pinTypes.js';
 
 // Fix Leaflet default icon paths (broken in Vite builds)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -138,8 +138,7 @@ function RouteLayer({ stops, route }) {
 
 const TripMap = forwardRef(function TripMap(
   { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode,
-    searchPins = [], onSearchPinSelect, searchSelectedId,
-    filterType, onFilterChange, allStopTypes = [] },
+    searchPins = [], onSearchPinSelect, searchSelectedId },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -156,83 +155,62 @@ const TripMap = forwardRef(function TripMap(
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      {/* Type filter pills overlay on map */}
-      {allStopTypes.length > 1 && (
-        <div className="map-filter-row">
-          <button
-            className={`map-filter-pill${!filterType ? ' active' : ''}`}
-            onClick={() => onFilterChange?.(null)}
-          >All</button>
-          {allStopTypes.map(type => {
-            const pt = PIN_TYPES[type] || PIN_TYPES.GENERAL;
-            return (
-              <button
-                key={type}
-                className={`map-filter-pill${filterType === type ? ' active' : ''}`}
-                onClick={() => onFilterChange?.(filterType === type ? null : type)}
-              >
-                {pt.emoji} {pt.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    <MapContainer
-      center={defaultCenter}
-      zoom={stops.length > 0 ? 6 : 4}
-      style={{ width: '100%', height: '100%' }}
-      zoomControl={false}
-    >
-      <TileLayer url={tileUrl} attribution={attribution} />
-      <RouteLayer stops={stops} route={route} />
-      <MapInitialFit stops={stops} userLocation={userLocation} />
-      <LongPressHandler onLongPress={onLongPress} />
-      <MapRefCapture ref={mapRef} stops={stops} />
-
-      {userLocation && (
-        <Marker position={userLocation} icon={makeLocationIcon()} />
-      )}
-
-      <MarkerClusterGroup
-        chunkedLoading
-        maxClusterRadius={60}
-        spiderfyOnMaxZoom
-        showCoverageOnHover={false}
-        iconCreateFunction={cluster => {
-          const count = cluster.getChildCount();
-          return L.divIcon({
-            html: `<div style="
-              width:40px;height:40px;border-radius:50%;
-              background:#f97316;color:#fff;font-weight:700;font-size:14px;
-              display:flex;align-items:center;justify-content:center;
-              border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);
-            ">${count}</div>`,
-            className: '',
-            iconSize: [40, 40],
-            iconAnchor: [20, 40],
-          });
-        }}
+      <MapContainer
+        center={defaultCenter}
+        zoom={stops.length > 0 ? 6 : 4}
+        style={{ width: '100%', height: '100%' }}
+        zoomControl={false}
       >
-        {stops.map((stop, idx) => (
+        <TileLayer url={tileUrl} attribution={attribution} />
+        <RouteLayer stops={stops} route={route} />
+        <MapInitialFit stops={stops} userLocation={userLocation} />
+        <LongPressHandler onLongPress={onLongPress} />
+        <MapRefCapture ref={mapRef} stops={stops} />
+
+        {userLocation && (
+          <Marker position={userLocation} icon={makeLocationIcon()} />
+        )}
+
+        <MarkerClusterGroup
+          chunkedLoading
+          maxClusterRadius={60}
+          spiderfyOnMaxZoom
+          showCoverageOnHover={false}
+          iconCreateFunction={cluster => {
+            const count = cluster.getChildCount();
+            return L.divIcon({
+              html: `<div style="
+                width:40px;height:40px;border-radius:50%;
+                background:#f97316;color:#fff;font-weight:700;font-size:14px;
+                display:flex;align-items:center;justify-content:center;
+                border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);
+              ">${count}</div>`,
+              className: '',
+              iconSize: [40, 40],
+              iconAnchor: [20, 40],
+            });
+          }}
+        >
+          {stops.map((stop, idx) => (
+            <Marker
+              key={stop.id}
+              position={[stop.lat, stop.lng]}
+              icon={makeStopIcon(stop, idx, stop.id === nextStop?.id)}
+              eventHandlers={{ click: () => onStopSelect(stop) }}
+            />
+          ))}
+        </MarkerClusterGroup>
+
+        {/* Search result pins — rendered outside cluster group so they're visually distinct */}
+        {searchPins.map(pin => (
           <Marker
-            key={stop.id}
-            position={[stop.lat, stop.lng]}
-            icon={makeStopIcon(stop, idx, stop.id === nextStop?.id)}
-            eventHandlers={{ click: () => onStopSelect(stop) }}
+            key={`search-${pin.id}`}
+            position={[pin.lat, pin.lng]}
+            icon={makeSearchIcon(pin.id === searchSelectedId)}
+            eventHandlers={{ click: () => onSearchPinSelect?.(pin) }}
           />
         ))}
-      </MarkerClusterGroup>
-
-      {/* Search result pins — rendered outside cluster group so they're visually distinct */}
-      {searchPins.map(pin => (
-        <Marker
-          key={`search-${pin.id}`}
-          position={[pin.lat, pin.lng]}
-          icon={makeSearchIcon(pin.id === searchSelectedId)}
-          eventHandlers={{ click: () => onSearchPinSelect?.(pin) }}
-        />
-      ))}
-    </MapContainer>
+      </MapContainer>
     </div>
   );
 });

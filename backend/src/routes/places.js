@@ -18,6 +18,75 @@ const placesRateLimit = rateLimit({
   message: { error: 'Too many requests. Please slow down.' },
 });
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseLatitude(value) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? clamp(parsed, -90, 90) : null;
+}
+
+function normalizeLongitude(value) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return null;
+  const normalized = ((((parsed + 180) % 360) + 360) % 360) - 180;
+  return normalized === -180 && parsed > 0 ? 180 : normalized;
+}
+
+function estimateViewportRadiusMeters(north, south, east, west) {
+  const centerLat = (north + south) / 2;
+  let lngSpan = east - west;
+  if (lngSpan < 0) lngSpan += 360;
+  const latMeters = Math.abs(north - south) * 111320;
+  const lngMeters = lngSpan * 111320 * Math.max(0.2, Math.cos(centerLat * Math.PI / 180));
+  return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), 5000, 50000);
+}
+
+function buildLocationBias({ north, south, east, west, lat, lng }) {
+  const centerLat = parseLatitude(lat);
+  const centerLng = normalizeLongitude(lng);
+
+  const northNum = parseLatitude(north);
+  const southNum = parseLatitude(south);
+  const eastNum = normalizeLongitude(east);
+  const westNum = normalizeLongitude(west);
+
+  if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum >= southNum) {
+    let lngSpan = eastNum - westNum;
+    if (lngSpan < 0) lngSpan += 360;
+
+    if (lngSpan > 0 && lngSpan <= 180 && eastNum >= westNum) {
+      return {
+        rectangle: {
+          low: { latitude: southNum, longitude: westNum },
+          high: { latitude: northNum, longitude: eastNum },
+        },
+      };
+    }
+
+    const viewportCenterLat = (northNum + southNum) / 2;
+    const viewportCenterLng = normalizeLongitude(westNum + (lngSpan / 2));
+    return {
+      circle: {
+        center: { latitude: viewportCenterLat, longitude: viewportCenterLng },
+        radius: estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum),
+      },
+    };
+  }
+
+  if (centerLat != null && centerLng != null) {
+    return {
+      circle: {
+        center: { latitude: centerLat, longitude: centerLng },
+        radius: 50000,
+      },
+    };
+  }
+
+  return null;
+}
+
 function normalizeNewPlace(place) {
   const lat = place.location?.latitude;
   const lng = place.location?.longitude;
@@ -122,20 +191,8 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
 
   try {
     const body = { textQuery: q.trim(), maxResultCount: 20 };
-
-    // Bias results to viewport rectangle if provided
-    if (north && south && east && west) {
-      body.locationBias = {
-        rectangle: {
-          low:  { latitude: parseFloat(south), longitude: parseFloat(west) },
-          high: { latitude: parseFloat(north), longitude: parseFloat(east) },
-        },
-      };
-    } else if (lat && lng) {
-      body.locationBias = {
-        circle: { center: { latitude: parseFloat(lat), longitude: parseFloat(lng) }, radius: 50000 },
-      };
-    }
+    const locationBias = buildLocationBias({ north, south, east, west, lat, lng });
+    if (locationBias) body.locationBias = locationBias;
 
     const response = await fetch(`${PLACES_NEW_BASE}:searchText`, {
       method: 'POST',

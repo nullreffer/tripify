@@ -13,6 +13,7 @@ import AiView from '../components/ai/AiView.jsx';
 import MoreView from '../components/more/MoreView.jsx';
 import DaysView from '../components/days/DaysView.jsx';
 import TodayView from '../components/days/TodayView.jsx';
+import { PIN_TYPES } from '../constants/pinTypes.js';
 
 const TABS = [
   { key: 'map',   label: 'Map',   icon: '🗺️' },
@@ -54,6 +55,7 @@ export default function TripWorkspace() {
   const [mapSearchResults, setMapSearchResults] = useState([]);
   const [mapSearching, setMapSearching] = useState(false);
   const [selectedSearchPin, setSelectedSearchPin] = useState(null);
+  const [showMapFilters, setShowMapFilters] = useState(false);
   const mapSearchDebounce = useRef(null);
 
   // Photo prompt after reaching a stop
@@ -139,6 +141,7 @@ export default function TripWorkspace() {
     : 0;
   const remainingDist = route ? (route.distance || 0) - completedDist : 0;
   const units = settings.units;
+  const availableStopTypes = [...new Set(stops.map(s => s.pinType).filter(Boolean))];
 
   // ── Map overlay handlers ─────────────────────────────────────────────
   const handleMyLocation = useCallback(() => {
@@ -305,9 +308,6 @@ export default function TripWorkspace() {
             searchPins={mapSearchResults}
             onSearchPinSelect={pin => setSelectedSearchPin(pin)}
             searchSelectedId={selectedSearchPin?.id}
-            filterType={stopTypeFilter}
-            onFilterChange={setStopTypeFilter}
-            allStopTypes={[...new Set(stops.map(s => s.pinType).filter(Boolean))]}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -322,6 +322,15 @@ export default function TripWorkspace() {
             <button className="map-ctrl-btn" title="Fit trip" onClick={handleFitTrip}>
               <span className="map-ctrl-icon">⊡</span>
             </button>
+            {availableStopTypes.length > 1 && (
+              <button
+                className={`map-ctrl-btn${showMapFilters ? ' map-ctrl-active' : ''}`}
+                title="Filters"
+                onClick={() => setShowMapFilters(prev => !prev)}
+              >
+                <span className="map-ctrl-icon">⚙️</span>
+              </button>
+            )}
             <button
               className={`map-ctrl-btn map-ctrl-search${mapSearchMode ? ' map-ctrl-active' : ''}`}
               title={mapSearchMode ? 'Exit search' : 'Search this area'}
@@ -333,6 +342,35 @@ export default function TripWorkspace() {
               <span className="map-ctrl-icon">🥾</span>
             </button>
           </div>
+          {showMapFilters && availableStopTypes.length > 1 && (
+            <div className="ws-map-filter-menu" style={{ bottom: activeTab === 'map' && nextStop ? '160px' : '12px' }}>
+              <button
+                className={`map-filter-menu-btn${!stopTypeFilter ? ' active' : ''}`}
+                onClick={() => {
+                  setStopTypeFilter(null);
+                  setShowMapFilters(false);
+                }}
+              >
+                All stops
+              </button>
+              {availableStopTypes.map(type => {
+                const typeMeta = PIN_TYPES[type] || PIN_TYPES.GENERAL;
+                return (
+                  <button
+                    key={type}
+                    className={`map-filter-menu-btn${stopTypeFilter === type ? ' active' : ''}`}
+                    onClick={() => {
+                      setStopTypeFilter(stopTypeFilter === type ? null : type);
+                      setShowMapFilters(false);
+                    }}
+                  >
+                    <span>{typeMeta.emoji}</span>
+                    <span>{typeMeta.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* ── Map search bar ── */}
           {mapSearchMode && (

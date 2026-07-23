@@ -24,6 +24,13 @@ function formatDate(dateStr) {
   });
 }
 
+function formatTripDates(startDate, endDate) {
+  if (startDate && endDate) return `${formatDate(startDate)} – ${formatDate(endDate)}`;
+  if (startDate) return `Starts ${formatDate(startDate)}`;
+  if (endDate) return `Ends ${formatDate(endDate)}`;
+  return 'Dates not set';
+}
+
 const ROLE_LABELS = {
   OWNER: { label: 'Owner', emoji: '👑' },
   PLANNER: { label: 'Planner', emoji: '✏️' },
@@ -49,23 +56,29 @@ function TripCard({ trip, onInvite, onClick }) {
       <div className="trip-card-body">
         <div className="trip-card-top">
           <h3 className="trip-card-title">{trip.title}</h3>
-          {canInvite && (
-            <button
-              className="invite-btn"
-              onClick={e => { e.stopPropagation(); onInvite(trip); }}
-              title="Invite someone"
-              aria-label="Invite someone to this trip"
+          <div className="trip-card-actions">
+            {canInvite && (
+              <button
+                className="invite-btn invite-btn-icon"
+                onClick={e => { e.stopPropagation(); onInvite(trip); }}
+                title="Invite someone"
+                aria-label="Invite someone to this trip"
+              >
+                ✉️
+              </button>
+            )}
+            <span
+              className={`trip-role-badge trip-role-icon role-${role.toLowerCase()}`}
+              title={roleInfo.label}
+              aria-label={roleInfo.label}
             >
-              + Invite
-            </button>
-          )}
+              {roleInfo.emoji}
+            </span>
+          </div>
         </div>
 
         <div className="trip-card-meta">
-          <span className="trip-card-date">Created {formatDate(trip.createdAt)}</span>
-          <span className={`trip-role-badge role-${role.toLowerCase()}`}>
-            {roleInfo.emoji} {roleInfo.label}
-          </span>
+          <span className="trip-card-date">{formatTripDates(trip.startDate, trip.endDate)}</span>
         </div>
 
         {memberAvatars.length > 0 && (
@@ -88,4 +101,3 @@ function TripCard({ trip, onInvite, onClick }) {
 }
 
 export default TripCard;
-
