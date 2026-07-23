@@ -138,7 +138,6 @@ Extract packing categories and items. Return ONLY valid JSON (no markdown, no ex
 ]
 
 Rules:
-- Consider all sheets/tabs in the workbook, including list/packing tabs not on the first page
 - Group items into logical categories (Clothing, Toiletries, Electronics, Food, Documents, Camping Gear, etc.)
 - If spreadsheet already has categories/groups, use those
 - quantity should be a number if quantity info is present (e.g. "3 shirts" → quantity: 3, unit: null)
@@ -156,7 +155,7 @@ async function createImportedItems(tripId, parsedCategories) {
   const created = [];
   for (const cat of parsedCategories) {
     if (!cat.name?.trim()) continue;
-    const itemColorFromCategory = typeof cat.color === 'string' && cat.color.trim() ? cat.color.trim() : null;
+    const categoryColor = typeof cat.color === 'string' && cat.color.trim() ? cat.color.trim() : null;
     const newCat = await prisma.itemCategory.create({
       data: {
         tripId,
@@ -172,7 +171,7 @@ async function createImportedItems(tripId, parsedCategories) {
         data: {
           categoryId: newCat.id,
           name: item.name.trim(),
-          color: itemColorFromCategory,
+          color: categoryColor,
           quantity: item.quantity ?? null,
           unit: item.unit || null,
           notes: item.notes || null,
