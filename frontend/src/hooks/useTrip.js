@@ -147,6 +147,24 @@ export function useTrip(tripId) {
     } catch (err) { markSaveError(); load(); throw err; }
   }, [tripId, load]);
 
+  const uploadStopPhoto = useCallback(async (stopId, photoDataUrl) => {
+    markSaving();
+    try {
+      const res = await fetch(`${API}/api/trips/${tripId}/stops/${stopId}/photo`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo: photoDataUrl })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to save photo');
+      const stop = await res.json();
+      setStops(prev => prev.map(s => s.id === stopId ? stop : s));
+      // Update trip coverImage in local state
+      setTrip(prev => prev ? { ...prev, coverImage: photoDataUrl } : prev);
+      markSaved();
+      return stop;
+    } catch (err) { markSaveError(); throw err; }
+  }, [tripId]);
+
   // ── Item mutations ─────────────────────────────────────────────────────────
 
   const addCategory = useCallback(async (name) => {
@@ -410,7 +428,7 @@ export function useTrip(tripId) {
 
   return {
     trip, stops, categories, references, days, reservations, loading, error, saveState,
-    addStop, updateStop, deleteStop, reorderStops, markReached,
+    addStop, updateStop, deleteStop, reorderStops, markReached, uploadStopPhoto,
     addCategory, deleteCategory, addItem, updateItem, deleteItem,
     addDay, updateDay, deleteDay, addEntry, updateEntry, deleteEntry,
     addReservation, updateReservation, deleteReservation,

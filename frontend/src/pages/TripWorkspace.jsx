@@ -53,6 +53,10 @@ export default function TripWorkspace() {
   const [selectedSearchPin, setSelectedSearchPin] = useState(null);
   const mapSearchDebounce = useRef(null);
 
+  // Photo prompt after reaching a stop
+  const [photoPromptStop, setPhotoPromptStop] = useState(null);
+  const photoFileRef = useRef(null);
+
   // Listen for settings changes
   useEffect(() => {
     const off = useSettingsListener(s => {
@@ -369,7 +373,10 @@ export default function TripWorkspace() {
                 >
                   Directions
                 </button>
-                <button className="ws-reach-btn" onClick={() => tripData.markReached(nextStop.id)}>
+                <button className="ws-reach-btn" onClick={async () => {
+                    await tripData.markReached(nextStop.id);
+                    setPhotoPromptStop(nextStop);
+                  }}>
                   ✓ Reached
                 </button>
               </div>
@@ -495,8 +502,10 @@ export default function TripWorkspace() {
             setSelectedStop(prev => ({ ...prev, ...updates }));
           }}
           onReach={() => {
-            tripData.markReached(selectedStop.id, !selectedStop.reached);
+            const wasReached = selectedStop.reached;
+            tripData.markReached(selectedStop.id, !wasReached);
             setSelectedStop(prev => ({ ...prev, reached: !prev.reached }));
+            if (!wasReached) setPhotoPromptStop(selectedStop);
           }}
           onDelete={async () => {
             await tripData.deleteStop(selectedStop.id);
@@ -514,6 +523,97 @@ export default function TripWorkspace() {
           onClose={() => setShowSearch(false)}
         />
       )}
+
+      {/* ── Photo prompt after reaching a stop ── */}
+      {photoPromptStop && (
+        <div className="sheet-overlay" onClick={() => setPhotoPromptStop(null)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-header">
+              <h3>📸 Add a photo?</h3>
+              <button className="sheet-close" onClick={() => setPhotoPromptStop(null)}>×</button>
+            </div>
+            <div className="sheet-body" style={{ paddingBottom: '24px' }}>
+              <p style={{ fontSize: '.9rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                Capture the moment at <strong>{photoPromptStop.name}</strong>!
+              </p>
+              <input
+                ref={photoFileRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const compressed = await compressImage(file, 1200, 0.82);
+                    await tripData.uploadStopPhoto(photoPromptStop.id, compressed);
+                  } catch (err) {
+                    console.error('Photo upload failed:', err);
+                  } finally {
+                    setPhotoPromptStop(null);
+                    if (photoFileRef.current) photoFileRef.current.value = '';
+                  }
+                }}
+              />
+              <input
+                id="photo-gallery-input"
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const compressed = await compressImage(file, 1200, 0.82);
+                    await tripData.uploadStopPhoto(photoPromptStop.id, compressed);
+                  } catch (err) {
+                    console.error('Photo upload failed:', err);
+                  } finally {
+                    setPhotoPromptStop(null);
+                    document.getElementById('photo-gallery-input').value = '';
+                  }
+                }}
+              />
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="btn-primary" style={{ flex: 1 }} onClick={() => photoFileRef.current?.click()}>
+                  📷 Take Photo
+                </button>
+                <button className="btn-secondary" style={{ flex: 1 }} onClick={() => document.getElementById('photo-gallery-input')?.click()}>
+                  🖼 Gallery
+                </button>
+              </div>
+              <button className="btn-ghost btn-sm" style={{ width: '100%', marginTop: '10px' }} onClick={() => setPhotoPromptStop(null)}>
+                Skip
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+// Compress an image File to a base64 JPEG at max width/height and given quality
+function compressImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }

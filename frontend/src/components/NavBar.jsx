@@ -133,8 +133,13 @@ function NavBar() {
           >
             ⚙️ Settings
           </button>
-          {!appInstalled && installPrompt && (
-            <button className="drawer-link drawer-install-btn" onClick={handleInstall}>
+          {!appInstalled && (
+            <button
+              className="drawer-link drawer-install-btn"
+              onClick={installPrompt ? handleInstall : () => {
+                alert('To install:\n\n• Android Chrome: tap the ⋮ menu → "Add to Home Screen"\n• iOS Safari: tap the Share icon → "Add to Home Screen"');
+              }}
+            >
               📲 Install App
             </button>
           )}

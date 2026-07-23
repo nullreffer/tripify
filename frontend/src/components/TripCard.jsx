@@ -41,7 +41,10 @@ function TripCard({ trip, onInvite, onClick }) {
     <div className="trip-card" onClick={onClick} style={{ cursor: onClick ? 'pointer' : undefined }}>
       <div
         className="trip-card-banner"
-        style={{ background: getGradient(trip.id) }}
+        style={trip.coverImage
+          ? { backgroundImage: `url(${trip.coverImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          : { background: getGradient(trip.id) }
+        }
       />
       <div className="trip-card-body">
         <div className="trip-card-top">

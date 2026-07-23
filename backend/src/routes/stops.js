@@ -152,6 +152,44 @@ router.post('/:stopId/reach', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/trips/:tripId/stops/:stopId/photo
+// Accepts { photo: "data:image/jpeg;base64,..." } — stores in stop.metadata and updates trip.coverImage
+router.post('/:stopId/photo', requireAuth, async (req, res, next) => {
+  try {
+    const access = await resolveAccess(req.params.tripId, req.user.id, true);
+    if (!access) return res.status(403).json({ error: 'Not found or insufficient permissions' });
+
+    const { photo } = req.body;
+    if (!photo || !photo.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'Valid base64 image required' });
+    }
+
+    // Rough size check — base64 of 600KB ≈ 820K chars
+    if (photo.length > 900000) {
+      return res.status(413).json({ error: 'Image too large. Max ~600 KB.' });
+    }
+
+    const stop = await prisma.stop.findFirst({
+      where: { id: req.params.stopId, tripId: req.params.tripId }
+    });
+    if (!stop) return res.status(404).json({ error: 'Stop not found' });
+
+    const existingMeta = (stop.metadata && typeof stop.metadata === 'object') ? stop.metadata : {};
+    const updated = await prisma.stop.update({
+      where: { id: req.params.stopId },
+      data: { metadata: { ...existingMeta, photo } }
+    });
+
+    // Update trip coverImage to this photo (most recent reached stop wins)
+    await prisma.trip.update({
+      where: { id: req.params.tripId },
+      data: { coverImage: photo }
+    });
+
+    res.json(updated);
+  } catch (err) { next(err); }
+});
+
 // DELETE /api/trips/:tripId/stops/:stopId
 router.delete('/:stopId', requireAuth, async (req, res, next) => {
   try {
