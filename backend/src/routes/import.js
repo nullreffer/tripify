@@ -327,7 +327,7 @@ Rules:
     const geocodedStops = await Promise.all(stopsToCreate.map(async (s) => {
       const lat = Number.isFinite(Number(s.lat)) ? Number(s.lat) : null;
       const lng = Number.isFinite(Number(s.lng)) ? Number(s.lng) : null;
-      const geocoded = (lat == null || lng == null) ? await geocodeStop(s.name?.trim(), s.address || null) : null;
+      const geocoded = await geocodeStop(s.name?.trim(), s.address || null);
       return { s, lat, lng, geocoded };
     }));
 
