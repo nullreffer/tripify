@@ -38,6 +38,7 @@ function parseSheetToText(buffer, mimetype, filename) {
 }
 
 function stripJsonFences(raw) {
+  // LLM responses may wrap JSON in markdown code fences; remove them before JSON.parse.
   return raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
@@ -156,6 +157,7 @@ async function createImportedItems(tripId, parsedCategories) {
   for (const cat of parsedCategories) {
     if (!cat.name?.trim()) continue;
     const categoryColor = typeof cat.color === 'string' && cat.color.trim() ? cat.color.trim() : null;
+    // ItemCategory does not have a color field in the current Prisma schema.
     const newCat = await prisma.itemCategory.create({
       data: {
         tripId,
@@ -245,11 +247,15 @@ Rules:
 
     // Create stops in order (skip those with no name)
     const stopsToCreate = (parsed.stops || []).filter(s => s.name?.trim());
-    for (let i = 0; i < stopsToCreate.length; i++) {
-      const s = stopsToCreate[i];
+    const geocodedStops = await Promise.all(stopsToCreate.map(async (s) => {
       const lat = Number.isFinite(Number(s.lat)) ? Number(s.lat) : null;
       const lng = Number.isFinite(Number(s.lng)) ? Number(s.lng) : null;
       const geocoded = (lat == null || lng == null) ? await geocodeStop(s.name?.trim(), s.address || null) : null;
+      return { s, lat, lng, geocoded };
+    }));
+
+    for (let i = 0; i < geocodedStops.length; i++) {
+      const { s, lat, lng, geocoded } = geocodedStops[i];
       await prisma.stop.create({
         data: {
           tripId: trip.id,
