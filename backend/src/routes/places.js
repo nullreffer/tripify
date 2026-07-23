@@ -18,6 +18,8 @@ const placesRateLimit = rateLimit({
   message: { error: 'Too many requests. Please slow down.' },
 });
 
+const METERS_PER_DEGREE_LATITUDE = 111320;
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -38,8 +40,8 @@ function estimateViewportRadiusMeters(north, south, east, west) {
   const centerLat = (north + south) / 2;
   let lngSpan = east - west;
   if (lngSpan < 0) lngSpan += 360;
-  const latMeters = Math.abs(north - south) * 111320;
-  const lngMeters = lngSpan * 111320 * Math.max(0.2, Math.cos(centerLat * Math.PI / 180));
+  const latMeters = Math.abs(north - south) * METERS_PER_DEGREE_LATITUDE;
+  const lngMeters = lngSpan * METERS_PER_DEGREE_LATITUDE * Math.max(0.2, Math.cos(centerLat * Math.PI / 180));
   return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), 5000, 50000);
 }
 
@@ -53,10 +55,11 @@ function buildLocationBias({ north, south, east, west, lat, lng }) {
   const westNum = normalizeLongitude(west);
 
   if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum >= southNum) {
-    let lngSpan = eastNum - westNum;
+    const rawLngSpan = eastNum - westNum;
+    let lngSpan = rawLngSpan;
     if (lngSpan < 0) lngSpan += 360;
 
-    if (lngSpan > 0 && lngSpan <= 180 && eastNum >= westNum) {
+    if (rawLngSpan > 0 && rawLngSpan <= 180) {
       return {
         rectangle: {
           low: { latitude: southNum, longitude: westNum },

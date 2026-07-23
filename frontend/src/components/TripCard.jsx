@@ -17,7 +17,9 @@ function getGradient(id) {
 }
 
 function formatDate(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-US', {
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric'
@@ -25,9 +27,11 @@ function formatDate(dateStr) {
 }
 
 function formatTripDates(startDate, endDate) {
-  if (startDate && endDate) return `${formatDate(startDate)} – ${formatDate(endDate)}`;
-  if (startDate) return `Starts ${formatDate(startDate)}`;
-  if (endDate) return `Ends ${formatDate(endDate)}`;
+  const formattedStart = startDate ? formatDate(startDate) : null;
+  const formattedEnd = endDate ? formatDate(endDate) : null;
+  if (formattedStart && formattedEnd) return `${formattedStart} – ${formattedEnd}`;
+  if (formattedStart) return `Starts ${formattedStart}`;
+  if (formattedEnd) return `Ends ${formattedEnd}`;
   return 'Dates not set';
 }
 
