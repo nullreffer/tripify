@@ -25,6 +25,7 @@ const upload = multer({
 function parseSheetToText(buffer, mimetype, filename) {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true, raw: false });
   const lines = [];
+  // Include all workbook sheets so downstream parsing can use list/packing tabs too.
   wb.SheetNames.forEach(name => {
     const ws = wb.Sheets[name];
     const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
@@ -155,7 +156,7 @@ async function createImportedItems(tripId, parsedCategories) {
   const created = [];
   for (const cat of parsedCategories) {
     if (!cat.name?.trim()) continue;
-    const categoryColor = typeof cat.color === 'string' && cat.color.trim() ? cat.color.trim() : null;
+    const itemColorFromCategory = typeof cat.color === 'string' && cat.color.trim() ? cat.color.trim() : null;
     const newCat = await prisma.itemCategory.create({
       data: {
         tripId,
@@ -171,7 +172,7 @@ async function createImportedItems(tripId, parsedCategories) {
         data: {
           categoryId: newCat.id,
           name: item.name.trim(),
-          color: categoryColor,
+          color: itemColorFromCategory,
           quantity: item.quantity ?? null,
           unit: item.unit || null,
           notes: item.notes || null,
