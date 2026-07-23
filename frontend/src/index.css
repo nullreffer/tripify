@@ -351,64 +351,33 @@ body {
   color: var(--primary);
 }
 
+.drawer-install-btn {
+  color: var(--primary) !important;
+  font-weight: 600;
+  border: 1.5px solid var(--primary);
+  margin-top: .5rem;
+}
+:root.dark .drawer-link:hover,
+:root.dark .drawer-link.active { background: #1e3a5f; }
+
 /* ─── Dashboard ─── */
 .dashboard { min-height: 100vh; background: var(--bg); }
 
-/* ── Dashboard van drive-in hero ── */
-.dash-hero {
-  position: relative;
-  height: 72px;
-  margin-top: var(--nav-height);
-  overflow: hidden;
-  background: var(--surface);
-  border-bottom: 2px solid var(--border);
-}
-/* Road strip */
-.dash-road {
-  position: absolute;
-  bottom: 12px; left: 0; right: 0;
-  height: 6px;
-  background: var(--border);
-}
-.dash-road::after {
-  content: '';
-  position: absolute;
-  top: 2px; left: 0; right: 0;
-  height: 2px;
-  background: repeating-linear-gradient(
-    to right,
-    var(--primary) 0, var(--primary) 20px,
-    transparent 20px, transparent 40px
-  );
-  animation: road-scroll 1.2s linear 0.1s both;
-}
-@keyframes road-scroll {
-  from { background-position: 40px 0; }
-  to   { background-position: 0 0; }
-}
-/* Van */
-.dash-van {
-  position: absolute;
-  bottom: 12px;
-  height: 52px;
-  width: auto;
-  image-rendering: pixelated;
-  animation: van-drive-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes van-drive-in {
-  from {
-    transform: translateX(-140px);
-    opacity: 0;
-  }
-  10% { opacity: 1; }
-  85% { transform: translateX(24px); }
-  100% { transform: translateX(16px); }
-}
-
 .main-content {
-  padding: 1.75rem 1.5rem 6rem;
+  padding: calc(var(--nav-height) + 1.75rem) 1.5rem 6rem;
   max-width: 1200px;
   margin: 0 auto;
+}
+
+/* ── Navbar logo drive-in animation (plays once on page load) ── */
+.logo-img {
+  animation: logo-drive-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes logo-drive-in {
+  from { transform: translateX(-56px); opacity: 0; }
+  60%  { opacity: 1; }
+  85%  { transform: translateX(4px); }
+  100% { transform: translateX(0); }
 }
 
 .trips-header { margin-bottom: 1.5rem; }

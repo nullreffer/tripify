@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App.jsx';
 import CamperLogo from '../assets/logo.png';
@@ -10,6 +10,35 @@ function NavBar() {
   const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [appInstalled, setAppInstalled] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    const installedHandler = () => setAppInstalled(true);
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', installedHandler);
+    // If already running as installed PWA, hide the button
+    if (window.matchMedia('(display-mode: standalone)').matches) setAppInstalled(true);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('appinstalled', installedHandler);
+    };
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setInstallPrompt(null);
+      setAppInstalled(true);
+    }
+    setDrawerOpen(false);
+  };
 
   const handleLogout = async () => {
     await fetch(`${API_BASE}/auth/logout`, {
@@ -104,6 +133,11 @@ function NavBar() {
           >
             ⚙️ Settings
           </button>
+          {!appInstalled && installPrompt && (
+            <button className="drawer-link drawer-install-btn" onClick={handleInstall}>
+              📲 Install App
+            </button>
+          )}
         </nav>
       </div>
     </>

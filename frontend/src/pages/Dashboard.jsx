@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import NavBar from '../components/NavBar.jsx';
 import TripCard from '../components/TripCard.jsx';
 import InviteModal from '../components/InviteModal.jsx';
-import VanLogo from '../assets/logo.png';
+
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -100,12 +100,6 @@ function Dashboard() {
   return (
     <div className="dashboard">
       <NavBar />
-
-      {/* ── Van drive-in hero ── */}
-      <div className="dash-hero" aria-hidden="true">
-        <div className="dash-road" />
-        <img src={VanLogo} alt="" className="dash-van" />
-      </div>
 
       <main className="main-content">
         <div className="trips-header">
