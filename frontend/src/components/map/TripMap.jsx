@@ -2,7 +2,7 @@ import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react
 import { MapContainer, TileLayer, Polyline, Marker, useMap, useMapEvents } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
-import { PIN_TYPES } from '../../constants/pinTypes.js';
+import { PIN_TYPES, PIN_TYPE_LIST } from '../../constants/pinTypes.js';
 
 // Fix Leaflet default icon paths (broken in Vite builds)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -138,7 +138,8 @@ function RouteLayer({ stops, route }) {
 
 const TripMap = forwardRef(function TripMap(
   { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode,
-    searchPins = [], onSearchPinSelect, searchSelectedId },
+    searchPins = [], onSearchPinSelect, searchSelectedId,
+    filterType, onFilterChange, allStopTypes = [] },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -154,6 +155,28 @@ const TripMap = forwardRef(function TripMap(
     : userLocation || [39.5, -98.35];
 
   return (
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      {/* Type filter pills overlay on map */}
+      {allStopTypes.length > 1 && (
+        <div className="map-filter-row">
+          <button
+            className={`map-filter-pill${!filterType ? ' active' : ''}`}
+            onClick={() => onFilterChange?.(null)}
+          >All</button>
+          {allStopTypes.map(type => {
+            const pt = PIN_TYPES[type] || PIN_TYPES.GENERAL;
+            return (
+              <button
+                key={type}
+                className={`map-filter-pill${filterType === type ? ' active' : ''}`}
+                onClick={() => onFilterChange?.(filterType === type ? null : type)}
+              >
+                {pt.emoji} {pt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     <MapContainer
       center={defaultCenter}
       zoom={stops.length > 0 ? 6 : 4}
@@ -210,6 +233,7 @@ const TripMap = forwardRef(function TripMap(
         />
       ))}
     </MapContainer>
+    </div>
   );
 });
 

@@ -82,19 +82,37 @@ router.put('/reorder', requireAuth, async (req, res, next) => {
     const access = await resolveAccess(req.params.tripId, req.user.id, true);
     if (!access) return res.status(403).json({ error: 'Not found or insufficient permissions' });
 
-    const { ids } = req.body; // ordered array of stop IDs
+    const { ids, baseDate } = req.body; // ordered array of stop IDs; optional baseDate for auto-dating
     if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids must be an array' });
 
+    // Determine base date for sequential dating when requested
+    let base = null;
+    if (baseDate) {
+      base = new Date(baseDate);
+      if (isNaN(base.getTime())) base = null;
+    }
+
     await prisma.$transaction(
-      ids.map((id, idx) =>
-        prisma.stop.update({
+      ids.map((id, idx) => {
+        const data = { order: idx };
+        if (base !== null) {
+          const d = new Date(base);
+          d.setDate(d.getDate() + idx);
+          data.targetDate = d;
+        }
+        return prisma.stop.update({
           where: { id, tripId: req.params.tripId },
-          data: { order: idx }
-        })
-      )
+          data
+        });
+      })
     );
     await prisma.trip.update({ where: { id: req.params.tripId }, data: {} });
-    res.json({ ok: true });
+    // Return updated stops so frontend can sync
+    const updated = await prisma.stop.findMany({
+      where: { tripId: req.params.tripId },
+      orderBy: { order: 'asc' }
+    });
+    res.json({ ok: true, stops: updated });
   } catch (err) { next(err); }
 });
 
