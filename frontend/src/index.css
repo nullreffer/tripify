@@ -2165,3 +2165,90 @@ body {
 .readiness-warn { background: #fffbeb; }
 .readiness-warn:hover { background: #fef3c7; }
 
+/* ─────────────────────────────────────────────────────────────────
+   ADMIN + APPROVAL
+───────────────────────────────────────────────────────────────── */
+.pending-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.pending-card {
+  width: 100%;
+  max-width: 520px;
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+}
+.pending-card h1 { font-size: 1.25rem; margin-bottom: .5rem; }
+.pending-card p { color: var(--text-muted); margin-top: .35rem; }
+
+.admin-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .9rem;
+  flex-wrap: wrap;
+}
+.admin-nav-tabs {
+  display: flex;
+  gap: .45rem;
+}
+.admin-tab {
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  padding: .35rem .8rem;
+  text-decoration: none;
+  color: var(--text-muted);
+  font-size: .85rem;
+  font-weight: 600;
+}
+.admin-tab-active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: .75rem;
+}
+.admin-card {
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: .8rem;
+}
+.admin-card-label {
+  color: var(--text-muted);
+  font-size: .8rem;
+}
+.admin-card-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-top: .2rem;
+}
+
+.admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+.admin-list-item {
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: .8rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+}
+.admin-user-name { font-weight: 700; }
+.admin-user-email { color: var(--text-muted); font-size: .85rem; }

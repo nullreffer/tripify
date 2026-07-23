@@ -3,6 +3,7 @@ const passport = require('passport');
 const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'iamjaydesai@gmail.com').trim().toLowerCase();
 
 // FRONTEND_URL may be comma-separated (CORS list) — use only the first for redirects
 const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
@@ -48,8 +49,9 @@ router.get(
 
 router.get('/me', (req, res) => {
   if (req.isAuthenticated()) {
-    const { id, name, email, avatar } = req.user;
-    res.json({ id, name, email, avatar });
+    const { id, name, email, avatar, isApproved } = req.user;
+    const isAdmin = email?.toLowerCase() === ADMIN_EMAIL;
+    res.json({ id, name, email, avatar, isApproved: Boolean(isApproved || isAdmin), isAdmin });
   } else {
     res.status(401).json({ error: 'Not authenticated' });
   }
@@ -63,4 +65,3 @@ router.post('/logout', (req, res, next) => {
 });
 
 module.exports = router;
-

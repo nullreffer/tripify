@@ -8,6 +8,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 function NavBar() {
   const { user, setUser } = useAuth();
   const navigate = useNavigate();
+  const isAdmin = user?.email?.toLowerCase() === 'iamjaydesai@gmail.com' || user?.isAdmin;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -133,6 +134,14 @@ function NavBar() {
           >
             ⚙️ Settings
           </button>
+          {isAdmin && (
+            <button
+              className="drawer-link"
+              onClick={() => { setDrawerOpen(false); navigate('/admin/reports'); }}
+            >
+              🛡️ Admin
+            </button>
+          )}
           {!appInstalled && (
             <button
               className="drawer-link drawer-install-btn"

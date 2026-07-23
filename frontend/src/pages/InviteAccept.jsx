@@ -27,7 +27,7 @@ function InviteAccept() {
   }, [token]);
 
   const handleAccept = async () => {
-    if (!user) {
+    if (!user || !user.isApproved) {
       // Store token in sessionStorage, redirect to login, come back after
       sessionStorage.setItem('pendingInvite', token);
       // Pass invite token as query param so the backend can validate it during OAuth
