@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
 
@@ -14,6 +15,12 @@ function requireAdmin(req, res, next) {
 
 router.use(requireAuth);
 router.use(requireAdmin);
+router.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
 
 router.get('/reports', async (_req, res, next) => {
   try {
