@@ -102,9 +102,9 @@ async function start() {
   // DATABASE_URL uses the private-network hostname (postgres.railway.internal)
   // but private networking is not enabled between services.  Catching the
   // error here surfaces a clear message instead of a silent crash.
+  let client;
   try {
-    const client = await pgPool.connect();
-    client.release();
+    client = await pgPool.connect();
     console.log('Database connection verified.');
   } catch (err) {
     console.error('Failed to connect to the database:', err.message);
@@ -114,6 +114,8 @@ async function start() {
       'private networking is enabled between the PostgreSQL and backend services.'
     );
     process.exit(1);
+  } finally {
+    if (client) client.release();
   }
 
   app.listen(PORT, () => {
