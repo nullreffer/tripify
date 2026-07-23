@@ -81,7 +81,10 @@ const GOOGLE_PLACE_TYPES = {
 };
 router.get('/nearby', placesRateLimit, requireAuth, async (req, res) => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) return res.json([]);
+  if (!apiKey) {
+    console.warn('Places nearby skipped: GOOGLE_PLACES_API_KEY is not configured');
+    return res.json([]);
+  }
   const { lat, lng, category, radius = 5000 } = req.query;
   if (!lat || !lng) return res.status(400).json({ error: 'lat and lng are required' });
   const type = GOOGLE_PLACE_TYPES[category];
@@ -89,17 +92,31 @@ router.get('/nearby', placesRateLimit, requireAuth, async (req, res) => {
   try {
     const params = new URLSearchParams({ location: `${lat},${lng}`, radius: String(radius), type, key: apiKey });
     const response = await fetch(`${PLACES_BASE}/nearbysearch/json?${params}`, { signal: AbortSignal.timeout(10000) });
-    if (!response.ok) return res.json([]);
+    if (!response.ok) {
+      const err = await response.text().catch(() => '');
+      console.error('Places nearby HTTP error:', response.status, category, lat, lng, err);
+      return res.json([]);
+    }
     const data = await response.json();
+    if (data.status && data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      console.error('Places nearby API error:', data.status, data.error_message || '');
+      return res.json([]);
+    }
     res.json((data.results || []).map(normalizePlace).filter(Boolean).slice(0, 20));
-  } catch { res.json([]); }
+  } catch (err) {
+    console.error('Places nearby exception:', err.message);
+    res.json([]);
+  }
 });
 
 // GET /api/places/search?q=&north=&south=&east=&west=
 // Uses the new Places API (Text Search v1)
 router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey) return res.json([]);
+  if (!apiKey) {
+    console.warn('Places search skipped: GOOGLE_PLACES_API_KEY is not configured');
+    return res.json([]);
+  }
   const { q, north, south, east, west, lat, lng } = req.query;
   if (!q?.trim()) return res.status(400).json({ error: 'q is required' });
 
@@ -146,14 +163,18 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
 
     if (!response.ok) {
       const err = await response.text().catch(() => '');
-      console.error('Places API error:', response.status, err);
+      console.error('Places search API error:', response.status, q, err);
       return res.json([]);
     }
 
     const data = await response.json();
-    res.json((data.places || []).map(normalizeNewPlace).filter(Boolean));
+    const places = (data.places || []).map(normalizeNewPlace).filter(Boolean);
+    if (!places.length) {
+      console.warn('Places search returned no results:', q);
+    }
+    res.json(places);
   } catch (err) {
-    console.error('Places search exception:', err.message);
+    console.error('Places search exception:', q, err.message);
     res.json([]);
   }
 });
