@@ -20,6 +20,8 @@ const placesRateLimit = rateLimit({
 
 const METERS_PER_DEGREE_LATITUDE = 111320;
 const MAX_NON_WRAPAROUND_LNG_SPAN = 180;
+const MAX_RECTANGLE_LAT_SPAN = 90;
+const MIN_COSINE_FOR_LNG_CALCULATION = 0.2;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -42,7 +44,10 @@ function estimateViewportRadiusMeters(north, south, east, west) {
   let lngSpan = east - west;
   if (lngSpan < 0) lngSpan += 360;
   const latMeters = Math.abs(north - south) * METERS_PER_DEGREE_LATITUDE;
-  const lngMeters = lngSpan * METERS_PER_DEGREE_LATITUDE * Math.max(0.2, Math.cos(centerLat * Math.PI / 180));
+  const lngMeters = lngSpan * METERS_PER_DEGREE_LATITUDE * Math.max(
+    MIN_COSINE_FOR_LNG_CALCULATION,
+    Math.cos(centerLat * Math.PI / 180)
+  );
   return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), 5000, 50000);
 }
 
@@ -56,11 +61,16 @@ function buildLocationBias({ north, south, east, west, lat, lng }) {
   const westNum = normalizeLongitude(west);
 
   if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
+    const latSpan = northNum - southNum;
     const rawLngSpan = eastNum - westNum;
     let lngSpan = rawLngSpan;
     if (lngSpan < 0) lngSpan += 360;
 
-    if (rawLngSpan > 0 && rawLngSpan <= MAX_NON_WRAPAROUND_LNG_SPAN) {
+    if (
+      latSpan <= MAX_RECTANGLE_LAT_SPAN &&
+      rawLngSpan > 0 &&
+      rawLngSpan <= MAX_NON_WRAPAROUND_LNG_SPAN
+    ) {
       return {
         rectangle: {
           low: { latitude: southNum, longitude: westNum },

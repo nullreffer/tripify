@@ -32,7 +32,7 @@ function formatTripDates(startDate, endDate) {
   if (formattedStart && formattedEnd) return `${formattedStart} – ${formattedEnd}`;
   if (formattedStart) return `Starts ${formattedStart}`;
   if (formattedEnd) return `Ends ${formattedEnd}`;
-  return 'Dates not set';
+  return 'No dates set';
 }
 
 const ROLE_LABELS = {
