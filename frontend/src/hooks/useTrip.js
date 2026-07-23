@@ -118,15 +118,35 @@ export function useTrip(tripId) {
   }, [tripId, load]);
 
   const reorderStops = useCallback(async (newStops) => {
-    setStops(newStops);
+    // Compute sequential dates starting from the first stop's date (or today)
+    const firstDatedIdx = newStops.findIndex(s => s.targetDate);
+    let baseDate;
+    if (firstDatedIdx >= 0) {
+      const d = new Date(newStops[firstDatedIdx].targetDate);
+      d.setDate(d.getDate() - firstDatedIdx);
+      baseDate = d;
+    } else {
+      baseDate = new Date();
+      baseDate.setHours(12, 0, 0, 0);
+    }
+
+    // Optimistically update stop dates in local state
+    const withDates = newStops.map((s, idx) => {
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() + idx);
+      return { ...s, targetDate: d.toISOString() };
+    });
+    setStops(withDates);
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}/stops/reorder`, {
         method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: newStops.map(s => s.id) })
+        body: JSON.stringify({ ids: newStops.map(s => s.id), baseDate: baseDate.toISOString() })
       });
       if (!res.ok) throw new Error('Failed to reorder');
+      const data = await res.json();
+      if (data.stops) setStops(data.stops);
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
   }, [tripId, load]);
@@ -426,12 +446,23 @@ export function useTrip(tripId) {
     } catch (err) { markSaveError(); load(); throw err; }
   }, [tripId, load]);
 
+  const deleteTrip = useCallback(async () => {
+    markSaving();
+    try {
+      const res = await fetch(`${API}/api/trips/${tripId}`, {
+        method: 'DELETE', credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to delete trip');
+      markSaved();
+    } catch (err) { markSaveError(); throw err; }
+  }, [tripId]);
+
   return {
     trip, stops, categories, references, days, reservations, loading, error, saveState,
     addStop, updateStop, deleteStop, reorderStops, markReached, uploadStopPhoto,
     addCategory, deleteCategory, addItem, updateItem, deleteItem,
     addDay, updateDay, deleteDay, addEntry, updateEntry, deleteEntry,
     addReservation, updateReservation, deleteReservation,
-    addReference, deleteReference, updateTrip, reload: load
+    addReference, deleteReference, updateTrip, deleteTrip, reload: load
   };
 }

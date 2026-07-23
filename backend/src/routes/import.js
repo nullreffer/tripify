@@ -189,6 +189,83 @@ async function createImportedItems(tripId, parsedCategories) {
   return created;
 }
 
+async function createImportedItinerary(tripId, parsedDays) {
+  if (!Array.isArray(parsedDays) || parsedDays.length === 0) return 0;
+
+  let dayOrder = 0;
+  let createdDays = 0;
+  for (const day of parsedDays) {
+    const newDay = await prisma.tripDay.create({
+      data: {
+        tripId,
+        date: day.date ? new Date(day.date) : null,
+        title: day.title?.trim() || null,
+        location: day.location?.trim() || null,
+        notes: day.notes?.trim() || null,
+        shower: 'UNKNOWN',
+        order: dayOrder++,
+      }
+    });
+    createdDays++;
+    const entries = Array.isArray(day.activities) ? day.activities : [];
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (!e.title?.trim()) continue;
+      const validTypes = ['ACTIVITY', 'TRAVEL', 'ACCOMMODATION', 'NOTE'];
+      await prisma.dayEntry.create({
+        data: {
+          dayId: newDay.id,
+          type: validTypes.includes(e.type) ? e.type : 'ACTIVITY',
+          title: e.title.trim(),
+          description: e.description?.trim() || null,
+          startTime: e.startTime || null,
+          endTime: e.endTime || null,
+          durationMins: e.durationMins ? Number(e.durationMins) : null,
+          fromLocation: e.fromLocation?.trim() || null,
+          toLocation: e.toLocation?.trim() || null,
+          order: i,
+        }
+      });
+    }
+  }
+  return createdDays;
+}
+
+function itineraryImportPrompt(sheetText) {
+  return `You are a travel app data importer. The user uploaded a spreadsheet with their trip itinerary.
+
+Here is the raw CSV data:
+${sheetText}
+
+Extract daily itinerary information. Return ONLY valid JSON (no markdown, no explanation) matching this schema:
+[
+  {
+    "date": "ISO date string or null",
+    "title": "string or null",
+    "location": "string or null — main location for the day",
+    "notes": "string or null",
+    "activities": [
+      {
+        "type": "ACTIVITY|TRAVEL|ACCOMMODATION|NOTE",
+        "title": "string — activity name",
+        "description": "string or null",
+        "startTime": "HH:MM or null",
+        "endTime": "HH:MM or null",
+        "durationMins": number or null,
+        "fromLocation": "string or null — for TRAVEL type",
+        "toLocation": "string or null — for TRAVEL type"
+      }
+    ]
+  }
+]
+
+Rules:
+- Only extract days/activities that are clearly present in the data
+- Use TRAVEL for driving/flights between places, ACCOMMODATION for hotels/camping, ACTIVITY for sightseeing/activities, NOTE for general notes
+- Return empty array [] if no itinerary data is found
+- Do not invent activities not in the data`;
+}
+
 // ── POST /api/import/trip  (no :tripId param — creates a new trip) ────────────
 router.post('/trip', requireAuth, upload.single('file'), async (req, res, next) => {
   try {
@@ -273,6 +350,7 @@ Rules:
 
     // Best-effort: also import packing lists if present in the same workbook.
     let listsCreated = 0;
+    let daysCreated = 0;
     try {
       let itemsRaw = await callGemini(itemImportPrompt(sheetText));
       itemsRaw = stripJsonFences(itemsRaw);
@@ -283,7 +361,17 @@ Rules:
       console.warn('Trip import list extraction skipped:', err.message);
     }
 
-    res.json({ tripId: trip.id, title: trip.title, stopsCreated: stopsToCreate.length, listsCreated });
+    // Best-effort: also import daily itinerary / activities
+    try {
+      let itinRaw = await callGemini(itineraryImportPrompt(sheetText));
+      itinRaw = stripJsonFences(itinRaw);
+      const parsedDays = JSON.parse(itinRaw);
+      daysCreated = await createImportedItinerary(trip.id, parsedDays);
+    } catch (err) {
+      console.warn('Trip import itinerary extraction skipped:', err.message);
+    }
+
+    res.json({ tripId: trip.id, title: trip.title, stopsCreated: stopsToCreate.length, listsCreated, daysCreated });
   } catch (err) {
     if (err.message?.includes('JSON')) {
       return res.status(422).json({ error: 'Gemini could not extract structured trip data from this spreadsheet. Try a simpler format.' });

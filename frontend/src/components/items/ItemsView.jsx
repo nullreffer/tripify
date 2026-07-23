@@ -32,12 +32,13 @@ function StatusBadge({ status, onClick }) {
 }
 
 function ColorDot({ color, selected, onClick }) {
+  const noColor = color == null;
   return (
     <button
       className={`color-dot${selected ? ' selected' : ''}`}
-      style={{ background: color === 'none' ? 'transparent' : color, border: color === 'none' ? '1.5px dashed #94a3b8' : 'none' }}
+      style={{ background: noColor ? 'transparent' : color, border: noColor ? '1.5px dashed #94a3b8' : 'none' }}
       onClick={onClick}
-      title={color}
+      title={color ?? 'none'}
     />
   );
 }
@@ -96,7 +97,7 @@ function ItemRow({ item, catId, onUpdate, onDelete }) {
         {showColors && (
           <div className="color-picker-row">
             {ITEM_COLORS.map(c => (
-              <ColorDot key={c} color={c} selected={item.color === c} onClick={() => { onUpdate(catId, item.id, { color: c }); setShowColors(false); }} />
+              <ColorDot key={c.label} color={c.value} selected={item.color === c.value} onClick={() => { onUpdate(catId, item.id, { color: c.value }); setShowColors(false); }} />
             ))}
           </div>
         )}

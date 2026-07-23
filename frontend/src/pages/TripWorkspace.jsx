@@ -45,6 +45,9 @@ export default function TripWorkspace() {
   const [settings, setSettings] = useState(getSettings());
   const [darkMode, setDarkMode] = useState(() => resolveMapStyle(getSettings().mapStyle));
 
+  // Stop type filter — shared between list and map views
+  const [stopTypeFilter, setStopTypeFilter] = useState(null);
+
   // Map area search mode
   const [mapSearchMode, setMapSearchMode] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
@@ -92,6 +95,41 @@ export default function TripWorkspace() {
     if (stops.length < 2) { setRoute(null); return; }
     getRoute(stops).then(setRoute);
   }, [stops]);
+
+  // Auto-generate itinerary days from stops when days tab is first opened and no days exist
+  const daysGenerated = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'days' || loading) return;
+    if (days.length > 0 || stops.length === 0) return;
+    if (daysGenerated.current) return;
+    daysGenerated.current = true;
+
+    // Find base date: use first stop with a targetDate, shifted to index 0; else use today at noon
+    const firstDatedIdx = stops.findIndex(s => s.targetDate);
+    let baseDate;
+    if (firstDatedIdx >= 0) {
+      const d = new Date(stops[firstDatedIdx].targetDate);
+      d.setDate(d.getDate() - firstDatedIdx);
+      baseDate = d;
+    } else {
+      baseDate = new Date();
+      baseDate.setHours(12, 0, 0, 0);
+    }
+
+    // Create one TripDay per stop in order (sequential to preserve order, runs in background)
+    (async () => {
+      for (let i = 0; i < stops.length; i++) {
+        const stop = stops[i];
+        const d = new Date(baseDate);
+        d.setDate(d.getDate() + i);
+        await tripData.addDay({
+          date: d.toISOString(),
+          location: stop.name,
+          title: null,
+        });
+      }
+    })();
+  }, [activeTab, days.length, stops, loading, tripData]);
 
   // ── Geographic progress ─────────────────────────────────────────────
   const reachedCount = stops.filter(s => s.reached).length;
@@ -217,6 +255,15 @@ export default function TripWorkspace() {
     setShowSearch(false);
   }, [tripData]);
 
+  // Mark reached from any tab — always show photo prompt when marking as reached
+  const handleMarkReached = useCallback(async (stopId, reached = true) => {
+    await tripData.markReached(stopId, reached);
+    if (reached !== false) {
+      const stop = stops.find(s => s.id === stopId);
+      if (stop) setPhotoPromptStop(stop);
+    }
+  }, [tripData, stops]);
+
   const nextStop = stops.find(s => !s.reached);
 
   if (loading) return <div className="workspace-loading"><div className="spinner" /></div>;
@@ -249,7 +296,7 @@ export default function TripWorkspace() {
         <div className="ws-map-layer">
           <TripMap
             ref={mapRef}
-            stops={stops}
+            stops={stopTypeFilter ? stops.filter(s => s.pinType === stopTypeFilter) : stops}
             route={route}
             userLocation={userLocation}
             onStopSelect={stop => { setSelectedStop(stop); setActiveTab('map'); }}
@@ -258,6 +305,9 @@ export default function TripWorkspace() {
             searchPins={mapSearchResults}
             onSearchPinSelect={pin => setSelectedSearchPin(pin)}
             searchSelectedId={selectedSearchPin?.id}
+            filterType={stopTypeFilter}
+            onFilterChange={setStopTypeFilter}
+            allStopTypes={[...new Set(stops.map(s => s.pinType).filter(Boolean))]}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -394,9 +444,11 @@ export default function TripWorkspace() {
                 units={units}
                 onSelect={stop => { setSelectedStop(stop); setActiveTab('map'); }}
                 onReorder={tripData.reorderStops}
-                onReached={tripData.markReached}
+                onReached={handleMarkReached}
                 onDelete={tripData.deleteStop}
                 onAdd={() => setShowSearch(true)}
+                filterType={stopTypeFilter}
+                onFilterChange={setStopTypeFilter}
               />
             )}
             {activeTab === 'days' && (
@@ -418,6 +470,7 @@ export default function TripWorkspace() {
                 {(!activeSubTab || activeSubTab === 'itinerary') && (
                   <DaysView
                     days={days}
+                    stops={stops}
                     tripId={id}
                     onAddDay={tripData.addDay}
                     onUpdateDay={tripData.updateDay}
@@ -467,6 +520,7 @@ export default function TripWorkspace() {
                 onAddReference={tripData.addReference}
                 onDeleteReference={tripData.deleteReference}
                 onUpdateTrip={tripData.updateTrip}
+                onDeleteTrip={async () => { await tripData.deleteTrip(); navigate('/'); }}
                 onNavigate={tab => setActiveTab(tab)}
               />
             )}

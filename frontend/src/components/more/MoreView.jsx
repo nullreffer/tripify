@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { formatDistance, formatDuration } from '../../services/routing.js';
 
 const REF_TYPES = ['GOOGLE_SHEET', 'BOOKING', 'DOCUMENT', 'LINK', 'OTHER'];
@@ -110,13 +110,15 @@ function ReadinessDashboard({ stops, days, reservations, categories, route, onNa
   );
 }
 
-export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onNavigate }) {
+export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate }) {
   const [editingTrip, setEditingTrip] = useState(false);
   const [title, setTitle] = useState(trip?.title || '');
   const [description, setDescription] = useState(trip?.description || '');
   const [startDate, setStartDate] = useState(trip?.startDate ? trip.startDate.slice(0, 10) : '');
   const [endDate, setEndDate] = useState(trip?.endDate ? trip.endDate.slice(0, 10) : '');
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoRef = useRef(null);
 
   const [addingRef, setAddingRef] = useState(false);
   const [refName, setRefName] = useState('');
@@ -126,6 +128,7 @@ export default function MoreView({ trip, stops, route, references, days, reserva
   const reached = stops.filter(s => s.reached).length;
   const totalDist = route?.distance ? formatDistance(route.distance) : null;
   const totalDur = route?.duration ? formatDuration(route.duration) : null;
+  const isOwner = trip?.memberRole === 'OWNER';
 
   const saveTrip = async () => {
     setSaving(true);
@@ -138,6 +141,21 @@ export default function MoreView({ trip, stops, route, references, days, reserva
     if (!refName.trim() || !refUrl.trim()) return;
     await onAddReference({ name: refName.trim(), url: refUrl.trim(), refType });
     setRefName(''); setRefUrl(''); setRefType('LINK'); setAddingRef(false);
+  };
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const compressed = await compressImage(file, 1200, 0.82);
+      await onUpdateTrip({ coverImage: compressed });
+    } catch (err) {
+      console.error('Photo upload failed:', err);
+    } finally {
+      setUploadingPhoto(false);
+      if (photoRef.current) photoRef.current.value = '';
+    }
   };
 
   return (
@@ -192,6 +210,17 @@ export default function MoreView({ trip, stops, route, references, days, reserva
             )}
           </div>
         )}
+
+        {/* Trip cover photo */}
+        <div className="more-cover-photo">
+          {trip?.coverImage && (
+            <img src={trip.coverImage} alt="Trip cover" className="more-cover-img" />
+          )}
+          <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
+          <button className="btn-ghost btn-sm" onClick={() => photoRef.current?.click()} disabled={uploadingPhoto}>
+            {uploadingPhoto ? '⏳ Uploading…' : trip?.coverImage ? '🖼 Change Cover Photo' : '🖼 Add Cover Photo'}
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -271,6 +300,47 @@ export default function MoreView({ trip, stops, route, references, days, reserva
           </div>
         ))}
       </div>
+
+      {/* Danger zone — owner only */}
+      {isOwner && onDeleteTrip && (
+        <div className="more-section more-danger-zone">
+          <h3>Danger Zone</h3>
+          <p className="more-danger-desc">Permanently delete this trip and all its data. This cannot be undone.</p>
+          <button
+            className="btn-danger"
+            onClick={() => {
+              if (confirm(`Delete "${trip?.title}"? This will permanently remove all stops, itinerary, and packing lists. This cannot be undone.`)) {
+                onDeleteTrip();
+              }
+            }}
+          >
+            🗑 Delete Trip
+          </button>
+        </div>
+      )}
     </div>
   );
+}
+
+// Compress image to base64 JPEG
+function compressImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
