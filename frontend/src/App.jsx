@@ -5,6 +5,10 @@ import Dashboard from './pages/Dashboard.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
 import TripWorkspace from './pages/TripWorkspace.jsx';
 import Settings from './pages/Settings.jsx';
+import PendingApproval from './pages/PendingApproval.jsx';
+import AdminLayout from './pages/AdminLayout.jsx';
+import AdminReports from './pages/AdminReports.jsx';
+import AdminApprovals from './pages/AdminApprovals.jsx';
 import { getSettings, useSettingsListener } from './services/settings.js';
 
 // ── Google Analytics SPA page-view tracker ──────────────────────────────────
@@ -37,10 +41,13 @@ export function useAuth() {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+const ADMIN_EMAIL = 'iamjaydesai@gmail.com';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL || user?.isAdmin;
+  const isApproved = !user ? false : Boolean(user?.isApproved || isAdmin);
 
   // Keep global dark class in sync with settings changes and system theme
   useEffect(() => {
@@ -87,19 +94,31 @@ function App() {
             element={user ? <Navigate to="/" replace /> : <Login />}
           />
           <Route
+            path="/pending"
+            element={user ? (isApproved ? <Navigate to="/" replace /> : <PendingApproval />) : <Navigate to="/login" replace />}
+          />
+          <Route
             path="/"
-            element={user ? <Dashboard /> : <Navigate to="/login" replace />}
+            element={user ? (isApproved ? <Dashboard /> : <Navigate to="/pending" replace />) : <Navigate to="/login" replace />}
           />
           <Route path="/invite/:token" element={<InviteAccept />} />
           <Route
             path="/trips/:id"
-            element={user ? <TripWorkspace /> : <Navigate to="/login" replace />}
+            element={user ? (isApproved ? <TripWorkspace /> : <Navigate to="/pending" replace />) : <Navigate to="/login" replace />}
           />
           <Route
             path="/settings"
-            element={user ? <Settings /> : <Navigate to="/login" replace />}
+            element={user ? (isApproved ? <Settings /> : <Navigate to="/pending" replace />) : <Navigate to="/login" replace />}
           />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route
+            path="/admin"
+            element={user ? (isAdmin ? <AdminLayout /> : <Navigate to="/" replace />) : <Navigate to="/login" replace />}
+          >
+            <Route index element={<Navigate to="reports" replace />} />
+            <Route path="reports" element={<AdminReports />} />
+            <Route path="approvals" element={<AdminApprovals />} />
+          </Route>
+          <Route path="*" element={<Navigate to={user && !isApproved ? '/pending' : '/'} replace />} />
         </Routes>
       </BrowserRouter>
     </AuthContext.Provider>
