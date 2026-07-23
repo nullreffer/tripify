@@ -18,7 +18,7 @@ function getGradient(id) {
 
 function formatDate(dateStr) {
   const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return null;
+  if (isNaN(date.getTime())) return null;
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',

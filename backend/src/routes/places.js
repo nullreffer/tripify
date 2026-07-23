@@ -19,6 +19,7 @@ const placesRateLimit = rateLimit({
 });
 
 const METERS_PER_DEGREE_LATITUDE = 111320;
+const MAX_NON_WRAPAROUND_LNG_SPAN = 180;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -54,12 +55,12 @@ function buildLocationBias({ north, south, east, west, lat, lng }) {
   const eastNum = normalizeLongitude(east);
   const westNum = normalizeLongitude(west);
 
-  if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum >= southNum) {
+  if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
     const rawLngSpan = eastNum - westNum;
     let lngSpan = rawLngSpan;
     if (lngSpan < 0) lngSpan += 360;
 
-    if (rawLngSpan > 0 && rawLngSpan <= 180) {
+    if (rawLngSpan > 0 && rawLngSpan <= MAX_NON_WRAPAROUND_LNG_SPAN) {
       return {
         rectangle: {
           low: { latitude: southNum, longitude: westNum },

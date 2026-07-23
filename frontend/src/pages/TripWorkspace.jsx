@@ -24,6 +24,9 @@ const TABS = [
   { key: 'more',  label: 'More',  icon: '⋯' },
 ];
 
+const MAP_CONTROLS_BOTTOM = '12px';
+const MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP = '160px';
+
 function resolveMapStyle(setting) {
   if (setting === 'light') return false;
   if (setting === 'dark')  return true;
@@ -268,6 +271,9 @@ export default function TripWorkspace() {
   }, [tripData, stops]);
 
   const nextStop = stops.find(s => !s.reached);
+  const mapOverlayBottom = activeTab === 'map' && nextStop
+    ? MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP
+    : MAP_CONTROLS_BOTTOM;
 
   if (loading) return <div className="workspace-loading"><div className="spinner" /></div>;
   if (error) return (
@@ -312,7 +318,7 @@ export default function TripWorkspace() {
 
           {/* ── Map overlay control buttons ── */}
           {/* Bottom offset increases when next-stop strip (≈100px) is visible to prevent overlap */}
-          <div className="ws-map-controls" style={{ bottom: activeTab === 'map' && nextStop ? '160px' : '12px' }}>
+          <div className="ws-map-controls" style={{ bottom: mapOverlayBottom }}>
             <button className="map-ctrl-btn" title="Add a stop" onClick={() => setShowSearch(true)}>
               <span className="map-ctrl-icon">+</span>
             </button>
@@ -343,7 +349,7 @@ export default function TripWorkspace() {
             </button>
           </div>
           {showMapFilters && availableStopTypes.length > 1 && (
-            <div className="ws-map-filter-menu" style={{ bottom: activeTab === 'map' && nextStop ? '160px' : '12px' }}>
+            <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom }}>
               <button
                 className={`map-filter-menu-btn${!stopTypeFilter ? ' active' : ''}`}
                 onClick={() => {
