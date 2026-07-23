@@ -150,7 +150,7 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
                     onSelect={onSelect}
                     onReached={onReached}
                     onDelete={onDelete}
-                    isReachedLocked={stop.reached || !!filterType}
+                    isReachedLocked={stop.reached}
                   />
                 );
               })}

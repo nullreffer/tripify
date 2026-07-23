@@ -116,7 +116,7 @@ export default function TripWorkspace() {
       baseDate.setHours(12, 0, 0, 0);
     }
 
-    // Create one TripDay per stop in order
+    // Create one TripDay per stop in order (sequential to preserve order, runs in background)
     (async () => {
       for (let i = 0; i < stops.length; i++) {
         const stop = stops[i];
