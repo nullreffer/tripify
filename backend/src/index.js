@@ -29,6 +29,11 @@ const pgPool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// Prevent unhandled rejections when the pool loses its connection
+pgPool.on('error', (err) => {
+  console.error('Unexpected error on idle PostgreSQL client:', err.message);
+});
+
 const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',').map(u => u.trim())
   : ['http://localhost:5173'];
@@ -90,6 +95,30 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+
+async function start() {
+  // Verify the database is reachable before accepting traffic.
+  // A common failure on Railway is EAI_AGAIN (DNS lookup failure) when
+  // DATABASE_URL uses the private-network hostname (postgres.railway.internal)
+  // but private networking is not enabled between services.  Catching the
+  // error here surfaces a clear message instead of a silent crash.
+  try {
+    const client = await pgPool.connect();
+    client.release();
+    console.log('Database connection verified.');
+  } catch (err) {
+    console.error('Failed to connect to the database:', err.message);
+    console.error(
+      'If you are on Railway, make sure DATABASE_URL is set to the public URL ' +
+      '(e.g. postgresql://...@monorail.proxy.rlwy.net:PORT/...) or that ' +
+      'private networking is enabled between the PostgreSQL and backend services.'
+    );
+    process.exit(1);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+start();
