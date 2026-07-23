@@ -4,8 +4,8 @@
   "description": "Plan your adventures, one trip at a time",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f9fafb",
-  "theme_color": "#f97316",
+  "background_color": "#1e293b",
+  "theme_color": "#1e293b",
   "orientation": "any",
   "icons": [
     {

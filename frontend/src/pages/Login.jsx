@@ -1,6 +1,6 @@
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
-import CamperLogo from '../assets/logo.svg';
+import CamperLogo from '../assets/logo.png';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 

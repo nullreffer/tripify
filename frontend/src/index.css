@@ -354,8 +354,59 @@ body {
 /* ─── Dashboard ─── */
 .dashboard { min-height: 100vh; background: var(--bg); }
 
+/* ── Dashboard van drive-in hero ── */
+.dash-hero {
+  position: relative;
+  height: 72px;
+  margin-top: var(--nav-height);
+  overflow: hidden;
+  background: var(--surface);
+  border-bottom: 2px solid var(--border);
+}
+/* Road strip */
+.dash-road {
+  position: absolute;
+  bottom: 12px; left: 0; right: 0;
+  height: 6px;
+  background: var(--border);
+}
+.dash-road::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 0; right: 0;
+  height: 2px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--primary) 0, var(--primary) 20px,
+    transparent 20px, transparent 40px
+  );
+  animation: road-scroll 1.2s linear 0.1s both;
+}
+@keyframes road-scroll {
+  from { background-position: 40px 0; }
+  to   { background-position: 0 0; }
+}
+/* Van */
+.dash-van {
+  position: absolute;
+  bottom: 12px;
+  height: 52px;
+  width: auto;
+  image-rendering: pixelated;
+  animation: van-drive-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes van-drive-in {
+  from {
+    transform: translateX(-140px);
+    opacity: 0;
+  }
+  10% { opacity: 1; }
+  85% { transform: translateX(24px); }
+  100% { transform: translateX(16px); }
+}
+
 .main-content {
-  padding: calc(var(--nav-height) + 1.75rem) 1.5rem 6rem;
+  padding: 1.75rem 1.5rem 6rem;
   max-width: 1200px;
   margin: 0 auto;
 }
