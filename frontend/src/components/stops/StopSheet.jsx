@@ -144,6 +144,13 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
           {/* ── Info tab ── */}
           {tab === 'info' && (
             <>
+              {metadata?.photo && (
+                <img
+                  src={metadata.photo}
+                  alt={`${stop.name} stop`}
+                  className="sheet-photo"
+                />
+              )}
               {stop.address && <p className="sheet-address">{stop.address}</p>}
               {stop.targetDate && (
                 <div className="sheet-detail-row">

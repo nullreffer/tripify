@@ -17,11 +17,22 @@ function getGradient(id) {
 }
 
 function formatDate(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-US', {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric'
   });
+}
+
+function formatTripDates(startDate, endDate) {
+  const formattedStart = startDate ? formatDate(startDate) : null;
+  const formattedEnd = endDate ? formatDate(endDate) : null;
+  if (formattedStart && formattedEnd) return `${formattedStart} – ${formattedEnd}`;
+  if (formattedStart) return `Starts ${formattedStart}`;
+  if (formattedEnd) return `Ends ${formattedEnd}`;
+  return 'No dates set';
 }
 
 const ROLE_LABELS = {
@@ -49,23 +60,29 @@ function TripCard({ trip, onInvite, onClick }) {
       <div className="trip-card-body">
         <div className="trip-card-top">
           <h3 className="trip-card-title">{trip.title}</h3>
-          {canInvite && (
-            <button
-              className="invite-btn"
-              onClick={e => { e.stopPropagation(); onInvite(trip); }}
-              title="Invite someone"
-              aria-label="Invite someone to this trip"
+          <div className="trip-card-actions">
+            {canInvite && (
+              <button
+                className="invite-btn invite-btn-icon"
+                onClick={e => { e.stopPropagation(); onInvite(trip); }}
+                title="Invite someone"
+                aria-label="Invite someone to this trip"
+              >
+                ✉️
+              </button>
+            )}
+            <span
+              className={`trip-role-badge trip-role-icon role-${role.toLowerCase()}`}
+              title={roleInfo.label}
+              aria-label={roleInfo.label}
             >
-              + Invite
-            </button>
-          )}
+              {roleInfo.emoji}
+            </span>
+          </div>
         </div>
 
         <div className="trip-card-meta">
-          <span className="trip-card-date">Created {formatDate(trip.createdAt)}</span>
-          <span className={`trip-role-badge role-${role.toLowerCase()}`}>
-            {roleInfo.emoji} {roleInfo.label}
-          </span>
+          <span className="trip-card-date">{formatTripDates(trip.startDate, trip.endDate)}</span>
         </div>
 
         {memberAvatars.length > 0 && (
@@ -88,4 +105,3 @@ function TripCard({ trip, onInvite, onClick }) {
 }
 
 export default TripCard;
-
