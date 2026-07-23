@@ -51,6 +51,8 @@ Key `.env` values:
 | `GOOGLE_CLIENT_SECRET` | From Google Cloud Console |
 | `GOOGLE_CALLBACK_URL` | `http://localhost:3001/auth/google/callback` |
 | `FRONTEND_URL` | `http://localhost:5173` |
+| `GEMINI_API_KEY` | Enables AI assistant and spreadsheet import features |
+| `GEMINI_MODEL` | Optional Gemini model override (defaults to `gemini-2.5-flash`) |
 
 ### 3 — Frontend setup
 
@@ -83,6 +85,8 @@ GOOGLE_CLIENT_ID      → from Google Cloud Console
 GOOGLE_CLIENT_SECRET  → from Google Cloud Console
 GOOGLE_CALLBACK_URL   → https://<your-backend>.up.railway.app/auth/google/callback
 FRONTEND_URL          → https://<your-frontend>.up.railway.app
+GEMINI_API_KEY        → from Google AI Studio
+GEMINI_MODEL          → optional, defaults to gemini-2.5-flash
 NODE_ENV              → production
 ```
 
