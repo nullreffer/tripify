@@ -1,11 +1,25 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
 import TripWorkspace from './pages/TripWorkspace.jsx';
 import Settings from './pages/Settings.jsx';
 import { getSettings, useSettingsListener } from './services/settings.js';
+
+// ── Google Analytics SPA page-view tracker ──────────────────────────────────
+function GaTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    if (typeof window.gtag === 'function' && import.meta.env.VITE_GA_TAG) {
+      window.gtag('event', 'page_view', {
+        page_path: location.pathname + location.search,
+        page_title: document.title,
+      });
+    }
+  }, [location]);
+  return null;
+}
 
 function applyTheme(mapStyle) {
   const dark = mapStyle === 'dark' ||
@@ -66,6 +80,7 @@ function App() {
   return (
     <AuthContext.Provider value={{ user, setUser }}>
       <BrowserRouter>
+        <GaTracker />
         <Routes>
           <Route
             path="/login"
