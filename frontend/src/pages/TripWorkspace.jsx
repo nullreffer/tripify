@@ -336,7 +336,8 @@ export default function TripWorkspace() {
       setOfflinePreparing(true);
       setOfflineStatus('');
       const allStops = [...routeStops, ...savedStops];
-      // Resolve approximate area names using reverse geocode (state/region level)
+      // Extract state/region names from Nominatim-style comma-delimited addresses
+      // (expected format: "..., State, Country" — second-to-last segment is state/region)
       const areaNames = [];
       for (const stop of allStops) {
         const state = stop.address?.split(',').slice(-2, -1)[0]?.trim();

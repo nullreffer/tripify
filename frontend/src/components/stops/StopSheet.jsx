@@ -41,6 +41,9 @@ const RESERVATION_PROVIDERS = [
   { name: 'Xanterra', appUrl: 'xanterra://', webBase: 'https://www.xanterra.com/search/?q=' },
 ];
 
+// Approximate kilometers per degree of latitude/longitude at mid-latitudes
+const KM_PER_DEGREE = 111;
+
 export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch, onAskWhatsAround, onReach, onDelete, canEdit }) {
   const [tab, setTab] = useState('info');
   const [name, setName] = useState(stop.name);
@@ -160,7 +163,7 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
               {isSaved && nearestRouteStop && (
                 <div className="sheet-detail-row">
                   📍 Nearest route pin: <strong>{nearestRouteStop.name}</strong>
-                  {' '}({(Math.hypot(nearestRouteStop.lat - stop.lat, nearestRouteStop.lng - stop.lng) * 111).toFixed(0)} km away)
+                  {' '}                  ({(Math.hypot(nearestRouteStop.lat - stop.lat, nearestRouteStop.lng - stop.lng) * KM_PER_DEGREE).toFixed(0)} km away)
                 </div>
               )}
               {stop.notes && <div className="sheet-notes">{stop.notes}</div>}

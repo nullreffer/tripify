@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -26,14 +26,14 @@ function parseLocationLinks(text) {
   return parts;
 }
 
-function MessageLine({ line, stops, onLocationClick }) {
+function MessageLine({ line, stopsByName, onLocationClick }) {
   const parts = parseLocationLinks(line);
   return (
     <>
       {parts.map((part, i) => {
         if (part.type === 'location') {
-          // Check if there's a matching stop (case-insensitive)
-          const matchedStop = stops?.find(s => s.name.toLowerCase() === part.value.toLowerCase());
+          // Look up in the pre-built normalized map for O(1) matching
+          const matchedStop = stopsByName?.get(part.value.toLowerCase());
           return (
             <button
               key={i}
@@ -58,6 +58,12 @@ export default function AiView({ tripId, tripName, stops, route, autoPromptReque
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Pre-build a normalized name→stop lookup map for O(1) matching in message rendering
+  const stopsByName = useMemo(() => {
+    if (!stops?.length) return new Map();
+    return new Map(stops.map(s => [s.name.toLowerCase(), s]));
+  }, [stops]);
 
   // Load history
   useEffect(() => {
@@ -149,7 +155,7 @@ export default function AiView({ tripId, tripName, stops, route, autoPromptReque
             <div className="ai-bubble">
               {msg.content.split('\n').map((line, j) => (
                 <React.Fragment key={j}>
-                  <MessageLine line={line} stops={stops} onLocationClick={handleLocationClick} />
+                  <MessageLine line={line} stopsByName={stopsByName} onLocationClick={handleLocationClick} />
                   <br />
                 </React.Fragment>
               ))}

@@ -65,6 +65,9 @@ function makeSearchIcon(isSelected) {
 }
 
 // Exposes imperative map control methods to parent via ref
+// Approximate meters per degree of latitude at mid-latitudes
+const METERS_PER_DEGREE = 111_000;
+
 const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
   const map = useMap();
   useImperativeHandle(ref, () => ({
@@ -89,7 +92,7 @@ const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
       const MAX_RADIUS_METERS = 800_000; // ~500 miles
       if (nearest.distance > MAX_RADIUS_METERS) {
         // Just show the ~500mi boundary — don't fly across the country
-        const deg = MAX_RADIUS_METERS / 111_000; // rough degrees per meter
+        const deg = MAX_RADIUS_METERS / METERS_PER_DEGREE;
         map.fitBounds(
           [[center.lat - deg, center.lng - deg * 1.4], [center.lat + deg, center.lng + deg * 1.4]],
           { padding: [60, 60], maxZoom: 7, animate: true }
