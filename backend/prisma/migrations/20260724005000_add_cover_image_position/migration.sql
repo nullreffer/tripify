@@ -1,0 +1,2 @@
+ALTER TABLE "Trip"
+ADD COLUMN "coverImagePosition" INTEGER NOT NULL DEFAULT 50;
