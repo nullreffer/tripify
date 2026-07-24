@@ -39,6 +39,7 @@ router.get('/', async (req, res, next) => {
       title: t.title,
       description: t.description,
       coverImage: t.coverImage,
+      coverImagePosition: t.coverImagePosition,
       startDate: t.startDate,
       endDate: t.endDate,
       stopCount: t._count.stops,
@@ -102,7 +103,7 @@ router.get('/:id', async (req, res, next) => {
 // Only owner or PLANNER members can edit
 router.put('/:id', async (req, res, next) => {
   try {
-    const { title, description, coverImage, startDate, endDate } = req.body;
+    const { title, description, coverImage, coverImagePosition, startDate, endDate } = req.body;
     const trip = await prisma.trip.findFirst({
       where: {
         id: req.params.id,
@@ -113,12 +114,17 @@ router.put('/:id', async (req, res, next) => {
       }
     });
     if (!trip) return res.status(404).json({ error: 'Trip not found or insufficient permissions' });
+    const parsedCoverPosition = coverImagePosition !== undefined ? Number(coverImagePosition) : null;
+    const clampedCoverPosition = Number.isFinite(parsedCoverPosition)
+      ? Math.max(0, Math.min(100, Math.round(parsedCoverPosition)))
+      : trip.coverImagePosition;
     const updated = await prisma.trip.update({
       where: { id: req.params.id },
       data: {
         title: title?.trim() ?? trip.title,
         description: description !== undefined ? description : trip.description,
         coverImage: coverImage !== undefined ? coverImage : trip.coverImage,
+        coverImagePosition: coverImagePosition !== undefined ? clampedCoverPosition : trip.coverImagePosition,
         startDate: startDate !== undefined ? (startDate ? new Date(startDate) : null) : trip.startDate,
         endDate: endDate !== undefined ? (endDate ? new Date(endDate) : null) : trip.endDate,
       }

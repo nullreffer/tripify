@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { formatDistance, formatDuration } from '../../services/routing.js';
 
 const REF_TYPES = ['GOOGLE_SHEET', 'BOOKING', 'DOCUMENT', 'LINK', 'OTHER'];
@@ -110,7 +110,7 @@ function ReadinessDashboard({ stops, days, reservations, categories, route, onNa
   );
 }
 
-export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate }) {
+export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate, onOpenStop }) {
   const [editingTrip, setEditingTrip] = useState(false);
   const [title, setTitle] = useState(trip?.title || '');
   const [description, setDescription] = useState(trip?.description || '');
@@ -118,6 +118,8 @@ export default function MoreView({ trip, stops, route, references, days, reserva
   const [endDate, setEndDate] = useState(trip?.endDate ? trip.endDate.slice(0, 10) : '');
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [coverPosition, setCoverPosition] = useState(trip?.coverImagePosition ?? 50);
+  const [savingCoverPosition, setSavingCoverPosition] = useState(false);
   const photoRef = useRef(null);
 
   const [addingRef, setAddingRef] = useState(false);
@@ -126,9 +128,14 @@ export default function MoreView({ trip, stops, route, references, days, reserva
   const [refType, setRefType] = useState('LINK');
 
   const reached = stops.filter(s => s.reached).length;
+  const galleryStops = stops.filter(s => s?.metadata?.photo);
   const totalDist = route?.distance ? formatDistance(route.distance) : null;
   const totalDur = route?.duration ? formatDuration(route.duration) : null;
   const isOwner = trip?.memberRole === 'OWNER';
+
+  useEffect(() => {
+    setCoverPosition(trip?.coverImagePosition ?? 50);
+  }, [trip?.coverImagePosition]);
 
   const saveTrip = async () => {
     setSaving(true);
@@ -155,6 +162,17 @@ export default function MoreView({ trip, stops, route, references, days, reserva
     } finally {
       setUploadingPhoto(false);
       if (photoRef.current) photoRef.current.value = '';
+    }
+  };
+
+  const persistCoverPosition = async () => {
+    const next = Math.max(0, Math.min(100, Math.round(coverPosition)));
+    if ((trip?.coverImagePosition ?? 50) === next) return;
+    setSavingCoverPosition(true);
+    try {
+      await onUpdateTrip({ coverImagePosition: next });
+    } finally {
+      setSavingCoverPosition(false);
     }
   };
 
@@ -214,12 +232,35 @@ export default function MoreView({ trip, stops, route, references, days, reserva
         {/* Trip cover photo */}
         <div className="more-cover-photo">
           {trip?.coverImage && (
-            <img src={trip.coverImage} alt="Trip cover" className="more-cover-img" />
+            <img
+              src={trip.coverImage}
+              alt="Trip cover"
+              className="more-cover-img"
+              style={{ objectPosition: `50% ${coverPosition}%` }}
+            />
           )}
           <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
           <button className="btn-ghost btn-sm" onClick={() => photoRef.current?.click()} disabled={uploadingPhoto}>
             {uploadingPhoto ? '⏳ Uploading…' : trip?.coverImage ? '🖼 Change Cover Photo' : '🖼 Add Cover Photo'}
           </button>
+          {trip?.coverImage && (
+            <div className="more-cover-position">
+              <label htmlFor="cover-position-slider">Move cover photo</label>
+              <input
+                id="cover-position-slider"
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={coverPosition}
+                onChange={e => setCoverPosition(Number(e.target.value))}
+                onMouseUp={persistCoverPosition}
+                onTouchEnd={persistCoverPosition}
+                onBlur={persistCoverPosition}
+                disabled={savingCoverPosition}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -295,6 +336,31 @@ export default function MoreView({ trip, stops, route, references, days, reserva
             <div className="member-info">
               <span className="member-name">{m.user?.name || 'Unknown'}</span>
               <span className="member-email">{m.user?.email}</span>
+            </div>
+
+            {/* Gallery */}
+            <div className="more-section">
+              <div className="more-section-hd">
+                <h3>Gallery</h3>
+                {galleryStops.length > 0 && <span className="more-gallery-count">{galleryStops.length} photo{galleryStops.length === 1 ? '' : 's'}</span>}
+              </div>
+              {galleryStops.length === 0 ? (
+                <p className="more-empty">No stop photos yet</p>
+              ) : (
+                <div className="more-gallery-grid">
+                  {galleryStops.map(stop => (
+                    <button
+                      key={stop.id}
+                      className="more-gallery-card"
+                      onClick={() => onOpenStop && onOpenStop(stop)}
+                      type="button"
+                    >
+                      <img src={stop.metadata.photo} alt={`${stop.name} photo`} className="more-gallery-img" />
+                      <span className="more-gallery-label">{stop.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <span className={`member-role-badge member-role-${m.role.toLowerCase()}`}>{m.role}</span>
           </div>

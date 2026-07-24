@@ -53,7 +53,11 @@ function TripCard({ trip, onInvite, onClick }) {
       <div
         className="trip-card-banner"
         style={trip.coverImage
-          ? { backgroundImage: `url(${trip.coverImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          ? {
+              backgroundImage: `url(${trip.coverImage})`,
+              backgroundSize: 'cover',
+              backgroundPosition: `50% ${trip.coverImagePosition ?? 50}%`
+            }
           : { background: getGradient(trip.id) }
         }
       />

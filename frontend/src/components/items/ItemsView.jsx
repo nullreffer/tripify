@@ -94,6 +94,13 @@ function ItemRow({ item, catId, onUpdate, onDelete }) {
       </div>
 
       <div className="item-row-actions">
+        <button
+          className={`item-pack-btn${isPacked ? ' packed' : ''}`}
+          onClick={() => onUpdate(catId, item.id, { status: isPacked ? 'need_to_pack' : 'packed', done: !isPacked })}
+          title={isPacked ? 'Mark not packed' : 'Mark packed'}
+        >
+          {isPacked ? '☑' : '☐'}
+        </button>
         {showColors && (
           <div className="color-picker-row">
             {ITEM_COLORS.map(c => (

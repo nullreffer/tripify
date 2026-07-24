@@ -566,6 +566,10 @@ export default function TripWorkspace() {
                 onUpdateTrip={tripData.updateTrip}
                 onDeleteTrip={async () => { await tripData.deleteTrip(); navigate('/'); }}
                 onNavigate={tab => setActiveTab(tab)}
+                onOpenStop={(stop) => {
+                  setSelectedStop(stop);
+                  setActiveTab('map');
+                }}
               />
             )}
           </div>

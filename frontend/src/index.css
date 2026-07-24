@@ -423,7 +423,7 @@ body {
   box-shadow: var(--shadow-md);
 }
 
-.trip-card-banner { height: 120px; }
+.trip-card-banner { aspect-ratio: 4 / 3; }
 
 .trip-card-body { padding: 1rem; }
 
@@ -1180,8 +1180,9 @@ body {
 .sheet-body { flex: 1; overflow-y: auto; padding: 0 1rem 2rem; }
 .sheet-photo {
   width: 100%;
-  max-height: 220px;
-  object-fit: cover;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  background: var(--bg);
   border-radius: 12px;
   margin-bottom: .75rem;
 }
@@ -2297,6 +2298,17 @@ body {
 }
 .item-status-btn:hover { transform: scale(1.2); }
 
+.item-pack-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.05rem;
+  color: var(--text-muted);
+  padding: .1rem;
+  flex-shrink: 0;
+}
+.item-pack-btn.packed { color: #22c55e; }
+
 .item-main {
   flex: 1;
   min-width: 0;
@@ -2514,7 +2526,61 @@ body {
   display: flex; flex-direction: column; gap: .5rem; align-items: flex-start;
 }
 .more-cover-img {
-  width: 100%; max-height: 160px; object-fit: cover; border-radius: 10px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--bg);
+}
+.more-cover-position {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.more-cover-position label {
+  font-size: .78rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.more-cover-position input[type='range'] {
+  width: 100%;
+}
+.more-gallery-count {
+  font-size: .75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.more-gallery-grid {
+  margin-top: .5rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .6rem;
+}
+.more-gallery-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.more-gallery-img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  background: #0000000f;
+  display: block;
+}
+.more-gallery-label {
+  display: block;
+  padding: .45rem .55rem .55rem;
+  font-size: .75rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .more-danger-zone {
   border-color: #ef444430 !important;
