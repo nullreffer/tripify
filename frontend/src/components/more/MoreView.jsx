@@ -110,7 +110,7 @@ function ReadinessDashboard({ stops, days, reservations, categories, route, onNa
   );
 }
 
-export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate }) {
+export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate, onDownloadOffline, offlineDownloading, offlineStatus, tripId }) {
   const [editingTrip, setEditingTrip] = useState(false);
   const [title, setTitle] = useState(trip?.title || '');
   const [description, setDescription] = useState(trip?.description || '');
@@ -131,6 +131,11 @@ export default function MoreView({ trip, stops, route, references, days, reserva
   const totalDist = route?.distance ? formatDistance(route.distance) : null;
   const totalDur = route?.duration ? formatDuration(route.duration) : null;
   const isOwner = trip?.memberRole === 'OWNER';
+
+  // Read cached offline snapshot from localStorage
+  const offlineSnapshot = (() => {
+    try { return JSON.parse(localStorage.getItem(`tripify-offline-${tripId}`) || 'null'); } catch { return null; }
+  })();
 
   useEffect(() => {
     setCoverPosition(trip?.coverImagePosition ?? 50);
@@ -298,6 +303,45 @@ export default function MoreView({ trip, stops, route, references, days, reserva
         <p className="more-empty">View all stop photos on a dedicated page.</p>
         <button className="btn-primary btn-sm" onClick={() => onNavigate?.('gallery')}>
           🖼 Open Gallery
+        </button>
+      </div>
+
+      {/* Offline Maps */}
+      <div className="more-section">
+        <div className="more-section-hd">
+          <h3>⬇️ Offline Maps</h3>
+        </div>
+        <p className="more-empty" style={{ marginBottom: '.75rem' }}>
+          Download map tiles around all your route stops so you can view the map without internet.
+        </p>
+        {offlineSnapshot && (
+          <div className="offline-snapshot-info">
+            <div className="offline-snapshot-date">
+              Last downloaded: {new Date(offlineSnapshot.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+            </div>
+            <div className="offline-snapshot-stops">
+              {offlineSnapshot.routeStops?.length ?? 0} route stops · {offlineSnapshot.savedStops?.length ?? 0} saved stops cached
+            </div>
+            {offlineSnapshot.downloadedAreas?.length > 0 && (
+              <div className="offline-areas">
+                <span className="offline-areas-label">Areas cached:</span>
+                <div className="offline-areas-list">
+                  {offlineSnapshot.downloadedAreas.map((a, i) => (
+                    <span key={i} className="offline-area-tag">{a}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {offlineStatus && <p className="offline-status-msg">{offlineStatus}</p>}
+        <button
+          className="btn-primary btn-sm"
+          onClick={onDownloadOffline}
+          disabled={offlineDownloading}
+          style={{ marginTop: '.5rem' }}
+        >
+          {offlineDownloading ? '⏳ Downloading…' : '⬇️ Download All Route Areas'}
         </button>
       </div>
 

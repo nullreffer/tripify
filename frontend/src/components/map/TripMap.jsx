@@ -65,6 +65,9 @@ function makeSearchIcon(isSelected) {
 }
 
 // Exposes imperative map control methods to parent via ref
+// Approximate meters per degree of latitude at mid-latitudes
+const METERS_PER_DEGREE = 111_000;
+
 const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
   const map = useMap();
   useImperativeHandle(ref, () => ({
@@ -83,11 +86,23 @@ const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
       const nearest = pins.reduce((best, pin) => {
         const distance = map.distance(center, [pin.lat, pin.lng]);
         return distance < best.distance ? { pin, distance } : best;
-      }, { pin: firstPin, distance: firstPinDistance }).pin;
+      }, { pin: firstPin, distance: firstPinDistance });
+
+      // Cap zoom-out to a ~500 mile radius from the current center
+      const MAX_RADIUS_METERS = 800_000; // ~500 miles
+      if (nearest.distance > MAX_RADIUS_METERS) {
+        // Just show the ~500mi boundary — don't fly across the country
+        const deg = MAX_RADIUS_METERS / METERS_PER_DEGREE;
+        map.fitBounds(
+          [[center.lat - deg, center.lng - deg * 1.4], [center.lat + deg, center.lng + deg * 1.4]],
+          { padding: [60, 60], maxZoom: 7, animate: true }
+        );
+        return;
+      }
 
       const nextBounds = L.latLngBounds(
         [center.lat, center.lng],
-        [nearest.lat, nearest.lng]
+        [nearest.pin.lat, nearest.pin.lng]
       );
       map.fitBounds(nextBounds, {
         padding: [60, 60],
@@ -186,11 +201,16 @@ const TripMap = forwardRef(function TripMap(
       },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      attribution: 'Tiles &copy; Esri',
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+      // Label overlay so city/state names appear on top of satellite imagery
+      labelOverlay: {
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+        attribution: '',
+      },
     },
     trails: {
       url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-      attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap',
+      attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
     },
   };
   const layer = tileLayerByMode[mapLayer] || tileLayerByMode.normal;
@@ -208,6 +228,9 @@ const TripMap = forwardRef(function TripMap(
         zoomControl={false}
       >
         <TileLayer url={layer.url} attribution={layer.attribution} />
+        {layer.labelOverlay && (
+          <TileLayer url={layer.labelOverlay.url} attribution={layer.labelOverlay.attribution} />
+        )}
         <RouteLayer stops={stops} route={route} />
         <MapInitialFit stops={stops} userLocation={userLocation} />
         <LongPressHandler onLongPress={onLongPress} />

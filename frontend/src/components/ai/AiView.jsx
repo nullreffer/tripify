@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -11,13 +11,59 @@ const SUGGESTIONS = [
   'Any tips for road tripping with a camper van?',
 ];
 
-export default function AiView({ tripId, tripName, autoPromptRequest, onAutoPromptDone }) {
+// Parse a text string into segments: plain text and [[location]] links
+function parseLocationLinks(text) {
+  const parts = [];
+  const regex = /\[\[([^\]]+)\]\]/g;
+  let last = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push({ type: 'text', value: text.slice(last, match.index) });
+    parts.push({ type: 'location', value: match[1] });
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parts.push({ type: 'text', value: text.slice(last) });
+  return parts;
+}
+
+function MessageLine({ line, stopsByName, onLocationClick }) {
+  const parts = parseLocationLinks(line);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.type === 'location') {
+          // Look up in the pre-built normalized map for O(1) matching
+          const matchedStop = stopsByName?.get(part.value.toLowerCase());
+          return (
+            <button
+              key={i}
+              className="ai-location-link"
+              onClick={() => onLocationClick?.(part.value, matchedStop)}
+              title={matchedStop ? `View ${part.value} on map` : `Search for ${part.value} on map`}
+            >
+              📍 {part.value}
+            </button>
+          );
+        }
+        return <React.Fragment key={i}>{part.value}</React.Fragment>;
+      })}
+    </>
+  );
+}
+
+export default function AiView({ tripId, tripName, stops, route, autoPromptRequest, onAutoPromptDone, onOpenMapSearch, onFlyToStop }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Pre-build a normalized name→stop lookup map for O(1) matching in message rendering
+  const stopsByName = useMemo(() => {
+    if (!stops?.length) return new Map();
+    return new Map(stops.map(s => [s.name.toLowerCase(), s]));
+  }, [stops]);
 
   // Load history
   useEffect(() => {
@@ -74,6 +120,14 @@ export default function AiView({ tripId, tripName, autoPromptRequest, onAutoProm
     onAutoPromptDone?.();
   }, [autoPromptRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleLocationClick = (name, matchedStop) => {
+    if (matchedStop) {
+      onFlyToStop?.(matchedStop);
+    } else {
+      onOpenMapSearch?.(name);
+    }
+  };
+
   return (
     <div className="ai-view">
       <div className="ai-header">
@@ -100,7 +154,10 @@ export default function AiView({ tripId, tripName, autoPromptRequest, onAutoProm
             {msg.role === 'assistant' && <div className="ai-avatar">✨</div>}
             <div className="ai-bubble">
               {msg.content.split('\n').map((line, j) => (
-                <React.Fragment key={j}>{line}<br /></React.Fragment>
+                <React.Fragment key={j}>
+                  <MessageLine line={line} stopsByName={stopsByName} onLocationClick={handleLocationClick} />
+                  <br />
+                </React.Fragment>
               ))}
             </div>
           </div>
