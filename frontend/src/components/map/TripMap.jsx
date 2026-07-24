@@ -71,10 +71,11 @@ const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
       if (anyVisible) return;
 
       const center = map.getCenter();
+      const firstPin = pins[0];
       const nearest = pins.reduce((best, pin) => {
-        const distance = Math.hypot(center.lat - pin.lat, center.lng - pin.lng);
+        const distance = map.distance(center, [pin.lat, pin.lng]);
         return distance < best.distance ? { pin, distance } : best;
-      }, { pin: pins[0], distance: Infinity }).pin;
+      }, { pin: firstPin, distance: map.distance(center, [firstPin.lat, firstPin.lng]) }).pin;
 
       const nextBounds = L.latLngBounds(
         [center.lat, center.lng],
