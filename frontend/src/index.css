@@ -582,6 +582,145 @@ body {
 }
 :root.dark .modal-import-status { background: #052e16; border-color: #166534; color: #86efac; }
 
+/* ─── Wider modal for review step ─── */
+.modal--wide { max-width: 560px; }
+
+/* ─── Import: processing step ─── */
+.import-processing-body {
+  display: flex; flex-direction: column; align-items: center;
+  gap: .75rem; padding: 2rem 1.5rem;
+}
+.import-spinner { width: 36px; height: 36px; }
+.import-processing-status {
+  font-size: .9rem; color: var(--text); text-align: center; max-width: 300px; line-height: 1.5;
+}
+.import-processing-hint {
+  font-size: .8rem; color: var(--text-muted); text-align: center;
+}
+.import-progress-track {
+  width: 100%; max-width: 280px; height: 6px;
+  background: var(--border); border-radius: 99px; overflow: hidden;
+}
+.import-progress-fill {
+  height: 100%; background: var(--primary); border-radius: 99px;
+  transition: width .3s ease;
+}
+
+/* ─── Import: review step ─── */
+.import-review-body {
+  padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; gap: .75rem;
+  max-height: 75vh; overflow-y: auto;
+}
+.import-review-progress {
+  display: flex; align-items: center; gap: .75rem;
+  font-size: .8rem; font-weight: 500; color: var(--text-muted);
+}
+.import-review-progress-bar {
+  flex: 1; height: 4px; background: var(--border); border-radius: 99px; overflow: hidden;
+}
+.import-review-progress-fill {
+  height: 100%; background: var(--primary); border-radius: 99px; transition: width .3s ease;
+}
+.import-review-stop-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: .75rem; display: flex; flex-direction: column; gap: .5rem;
+}
+.import-review-stop-header {
+  display: flex; align-items: flex-start; gap: .6rem;
+}
+.import-review-stop-emoji { font-size: 1.4rem; line-height: 1.2; flex-shrink: 0; }
+.import-review-stop-name { font-size: .95rem; font-weight: 600; color: var(--text); }
+.import-review-stop-address { font-size: .8rem; color: var(--text-muted); line-height: 1.4; margin-top: .15rem; }
+.import-review-no-address { font-style: italic; }
+.import-pin-select {
+  width: 100%; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 6px;
+  font-size: .82rem; background: var(--surface); color: var(--text); cursor: pointer;
+}
+.import-review-map-wrapper {
+  border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--border);
+}
+.import-review-no-location {
+  padding: .65rem .875rem; background: #fef3c7; border: 1px solid #fcd34d;
+  border-radius: 8px; font-size: .85rem; color: #92400e; line-height: 1.4;
+}
+:root.dark .import-review-no-location { background: #451a03; border-color: #92400e; color: #fed7aa; }
+.import-review-actions {
+  display: flex; gap: .5rem; justify-content: flex-end;
+}
+.import-action-confirm {
+  padding: .5rem 1rem; background: #22c55e; color: #fff; border: none;
+  border-radius: 8px; font-size: .88rem; font-weight: 600; cursor: pointer;
+  transition: background .15s;
+}
+.import-action-confirm:hover { background: #16a34a; }
+.import-action-edit {
+  padding: .5rem 1rem; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; font-size: .88rem;
+  cursor: pointer; transition: background .15s;
+}
+.import-action-edit:hover { background: var(--bg); }
+.import-action-skip {
+  padding: .5rem 1rem; background: var(--surface); color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: 8px; font-size: .88rem;
+  cursor: pointer; transition: background .15s;
+}
+.import-action-skip:hover { background: var(--bg); }
+
+/* ─── Import: edit location ─── */
+.import-edit-location { display: flex; flex-direction: column; gap: .5rem; }
+.import-edit-label { font-size: .875rem; color: var(--text); }
+.import-edit-row { display: flex; gap: .5rem; }
+.import-edit-input {
+  flex: 1; padding: .6rem .875rem; border: 1px solid var(--border);
+  border-radius: 8px; font-size: .9rem; color: var(--text); background: var(--surface); outline: none;
+}
+.import-edit-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249,115,22,.15); }
+.import-edit-search-btn {
+  padding: .6rem .875rem; background: var(--primary); color: #fff; border: none;
+  border-radius: 8px; cursor: pointer; font-size: .95rem; flex-shrink: 0;
+}
+.import-edit-search-btn:disabled { opacity: .6; cursor: not-allowed; }
+.import-search-results {
+  list-style: none; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  max-height: 180px; overflow-y: auto;
+}
+.import-search-result {
+  padding: .55rem .875rem; cursor: pointer; display: flex; flex-direction: column; gap: .1rem;
+  border-bottom: 1px solid var(--border);
+}
+.import-search-result:last-child { border-bottom: none; }
+.import-search-result:hover { background: var(--bg); }
+.import-search-result-name { font-size: .875rem; font-weight: 600; color: var(--text); }
+.import-search-result-addr { font-size: .78rem; color: var(--text-muted); }
+
+/* ─── Import: confirm/summary screen ─── */
+.import-review-summary-title { font-size: 1rem; font-weight: 600; color: #16a34a; }
+:root.dark .import-review-summary-title { color: #86efac; }
+.import-review-summary-sub { font-size: .875rem; color: var(--text-muted); }
+.import-warn { color: #d97706; }
+.import-stop-summary-list {
+  list-style: none; border: 1px solid var(--border); border-radius: 8px;
+  max-height: 220px; overflow-y: auto;
+}
+.import-stop-summary-item {
+  display: flex; align-items: center; gap: .5rem; padding: .5rem .75rem;
+  border-bottom: 1px solid var(--border); font-size: .875rem;
+}
+.import-stop-summary-item:last-child { border-bottom: none; }
+.import-stop-summary-emoji { font-size: 1.1rem; flex-shrink: 0; }
+.import-stop-summary-name { flex: 1; color: var(--text); }
+.import-stop-no-loc-badge {
+  font-size: .75rem; color: #d97706; background: #fef3c7;
+  border-radius: 4px; padding: 1px 6px; flex-shrink: 0;
+}
+:root.dark .import-stop-no-loc-badge { background: #451a03; color: #fed7aa; }
+.import-stop-summary-edit {
+  background: none; border: none; cursor: pointer; color: var(--text-muted);
+  font-size: .9rem; padding: 2px 6px; border-radius: 4px;
+}
+.import-stop-summary-edit:hover { background: var(--bg); color: var(--text); }
+
 .btn-primary {
   padding: .6rem 1.25rem;
   background: var(--primary);
