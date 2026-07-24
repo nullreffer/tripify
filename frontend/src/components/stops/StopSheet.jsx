@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { PIN_TYPES, PIN_TYPE_LIST } from '../../constants/pinTypes.js';
 import { formatDistance, formatDuration } from '../../services/routing.js';
-import { NEARBY_CATEGORIES, nearbySearch } from '../../services/nearby.js';
 
 const TYPE_METADATA = {
   HOTEL: [
@@ -32,48 +31,8 @@ const TYPE_METADATA = {
   ],
 };
 
-function NearbyTab({ stop, onAddNearby }) {
-  const [category, setCategory] = useState(null);
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  const search = async (cat) => {
-    setCategory(cat);
-    setLoading(true);
-    const res = await nearbySearch(stop.lat, stop.lng, cat);
-    setResults(res);
-    setLoading(false);
-  };
-
-  return (
-    <div className="nearby-tab">
-      <div className="nearby-cats">
-        {NEARBY_CATEGORIES.map(c => (
-          <button
-            key={c.key}
-            className={`nearby-cat-btn${category === c.key ? ' active' : ''}`}
-            onClick={() => search(c.key)}
-          >
-            {c.emoji} {c.label}
-          </button>
-        ))}
-      </div>
-      {loading && <div className="nearby-loading"><div className="spinner sm" /></div>}
-      {!loading && results.length === 0 && category && <p className="nearby-empty">No results found nearby.</p>}
-      <div className="nearby-results">
-        {results.map(r => (
-          <div key={r.id} className="nearby-result">
-            <span className="nearby-result-name">{r.name}</span>
-            <button className="btn-primary btn-xs" onClick={() => onAddNearby(r, category)}>+ Add</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onReach, onDelete, canEdit }) {
-  const [tab, setTab] = useState('info'); // info | edit | nearby
+export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch, onReach, onDelete, canEdit }) {
+  const [tab, setTab] = useState('info'); // info | edit
   const [name, setName] = useState(stop.name);
   const [pinType, setPinType] = useState(stop.pinType);
   const [notes, setNotes] = useState(stop.notes || '');
@@ -107,11 +66,6 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
     window.open(url, '_blank');
   };
 
-  const handleAddNearby = async (result, category) => {
-    const typeMap = { gas: 'GAS_STATION', restaurant: 'RESTAURANT', hotel: 'HOTEL', campground: 'CAMPGROUND', ev: 'EV_CHARGER', attraction: 'ATTRACTION', parking: 'PARKING' };
-    await onUpdate({ __addNearbyStop: { name: result.name, lat: result.lat, lng: result.lng, pinType: typeMap[category] || 'GENERAL' } });
-  };
-
   const metaFields = TYPE_METADATA[pinType] || [];
 
   return (
@@ -134,7 +88,17 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
         {/* Tab pills */}
         <div className="sheet-tabs">
           {['info', canEdit && 'edit', 'nearby'].filter(Boolean).map(t => (
-            <button key={t} className={`sheet-tab-pill${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
+            <button
+              key={t}
+              className={`sheet-tab-pill${tab === t ? ' active' : ''}`}
+              onClick={() => {
+                if (t === 'nearby') {
+                  onOpenNearbySearch?.();
+                  return;
+                }
+                setTab(t);
+              }}
+            >
               {t === 'info' ? 'Info' : t === 'edit' ? '✏️ Edit' : '🔍 Nearby'}
             </button>
           ))}
@@ -244,16 +208,6 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                 </button>
               </div>
             </div>
-          )}
-
-          {/* ── Nearby tab ── */}
-          {tab === 'nearby' && (
-            <NearbyTab stop={stop} onAddNearby={(r, cat) => {
-              // We'll handle this through the workspace
-              import('../../hooks/useTrip.js').then(() => {});
-              onUpdate({ __addNearbyStop: r });
-              onClose();
-            }} />
           )}
         </div>
       </div>
