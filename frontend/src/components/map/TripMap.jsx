@@ -83,7 +83,7 @@ const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
       );
       map.fitBounds(nextBounds, {
         padding: [60, 60],
-        maxZoom: Math.min(map.getZoom(), 13),
+        maxZoom: 13,
         animate: true,
       });
     },
