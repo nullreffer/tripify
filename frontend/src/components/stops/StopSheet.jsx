@@ -89,19 +89,13 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
 
         {/* Tab pills */}
         <div className="sheet-tabs">
-          {['info', canEdit && 'edit', 'nearby'].filter(Boolean).map(t => (
+          {['info', canEdit && 'edit'].filter(Boolean).map(t => (
             <button
               key={t}
               className={`sheet-tab-pill${tab === t ? ' active' : ''}`}
-              onClick={() => {
-                if (t === 'nearby') {
-                  onOpenNearbySearch();
-                  return;
-                }
-                setTab(t);
-              }}
+              onClick={() => setTab(t)}
             >
-              {t === 'info' ? 'Info' : t === 'edit' ? '✏️ Edit' : '🔍 Nearby'}
+              {t === 'info' ? 'Info' : '✏️ Edit'}
             </button>
           ))}
         </div>
@@ -147,6 +141,9 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                     🔁 From Prev
                   </button>
                 )}
+                <button className="sheet-action-btn" onClick={onOpenNearbySearch}>
+                  🔍 Nearby
+                </button>
                 {canEdit && (
                   <button
                     className={`sheet-action-btn${stop.reached ? ' btn-green' : ' btn-orange'}`}

@@ -164,10 +164,12 @@ export default function TripWorkspace() {
   }, []);
 
   const handleOpenStop = useCallback((stop, { searchNearby = false } = {}) => {
-    setSelectedStop(searchNearby ? null : stop);
+    const openNearbySearch = searchNearby;
+    setSelectedStop(openNearbySearch ? null : stop);
     setActiveTab('map');
     mapRef.current?.flyToLocation(stop.lat, stop.lng, 15);
-    setMapSearchMode(searchNearby);
+    if (!openNearbySearch) return;
+    setMapSearchMode(true);
     setMapSearchResults([]);
     setSelectedSearchPin(null);
     setMapSearchQuery('');
