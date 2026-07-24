@@ -36,7 +36,7 @@ function applyOrientation(orientation) {
   if (orientation === 'portrait') {
     screen.orientation.lock('portrait').catch(() => {});
   } else {
-    screen.orientation.unlock?.();
+    screen.orientation.unlock();
   }
 }
 

@@ -411,8 +411,9 @@ export default function TripWorkspace() {
         savedStops,
         downloadedAreas: areaNames,
         tileCount: totalUrls,
-        // Rough estimate: ~15 KB per tile (OSM avg) across 3 layers
-        estimatedSizeMB: Math.round(totalUrls * 15 / 1024 * 10) / 10,
+        // totalUrls counts each individual tile URL (one per tile per layer).
+        // Rough estimate: ~15 KB per tile URL on average.
+        estimatedSizeMB: Math.round((totalUrls * 15) / 1024 * 10) / 10,
       };
       localStorage.setItem(`tripify-offline-${id}`, JSON.stringify(snapshot));
       setOfflineStatus(`Downloaded ~${totalUrls} tiles across normal, satellite, and trail maps.`);
