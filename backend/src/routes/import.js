@@ -231,6 +231,39 @@ async function createImportedItinerary(tripId, parsedDays) {
   return createdDays;
 }
 
+function tripImportPrompt(sheetText) {
+  return `You are a travel app data importer. The user uploaded a spreadsheet to create a road trip.
+
+Here is the raw CSV data from the spreadsheet:
+${sheetText}
+
+Extract trip information and return ONLY valid JSON (no markdown, no explanation) matching this schema exactly:
+{
+  "title": "string — trip name",
+  "description": "string or null",
+  "startDate": "ISO date string or null",
+  "endDate": "ISO date string or null",
+  "stops": [
+    {
+      "name": "string — place name",
+      "address": "string or null",
+      "lat": number or null,
+      "lng": number or null,
+      "pinType": "GENERAL|STAY|HOTEL|CAMPGROUND|HIKING_TRAIL|RESTAURANT|ATTRACTION|GAS_STATION|AIRPORT|PARKING|OTHER",
+      "notes": "string or null",
+      "targetDate": "ISO datetime string or null"
+    }
+  ]
+}
+
+Rules:
+- stops must be in order of travel
+- If lat/lng not present in data, set them to null (the app will geocode them)
+- Choose pinType intelligently based on the stop description
+- If no clear trip title, derive one from destination names
+- Only include stops you are confident about; do not invent stops not in the data`;
+}
+
 function itineraryImportPrompt(sheetText) {
   return `You are a travel app data importer. The user uploaded a spreadsheet with their trip itinerary.
 
@@ -266,6 +299,155 @@ Rules:
 - Do not invent activities not in the data`;
 }
 
+// ── POST /api/import/trip/preview  (SSE stream — parse & geocode, no DB writes) ─
+router.post('/trip/preview', requireAuth, upload.single('file'), async (req, res) => {
+  // Server-sent events: stream NDJSON progress lines then a final "done" payload.
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering
+
+  const send = (obj) => {
+    try { res.write(JSON.stringify(obj) + '\n'); } catch (_) { /* client disconnected */ }
+  };
+
+  try {
+    if (!req.file) {
+      send({ type: 'error', message: 'No file uploaded' });
+      return res.end();
+    }
+
+    send({ type: 'status', message: 'Parsing spreadsheet…' });
+    const sheetText = parseSheetToText(req.file.buffer, req.file.mimetype, req.file.originalname);
+    if (!sheetText.trim()) {
+      send({ type: 'error', message: 'Spreadsheet appears empty' });
+      return res.end();
+    }
+
+    send({ type: 'status', message: 'Asking AI to extract trip data…' });
+    let raw = await callGemini(tripImportPrompt(sheetText));
+    raw = stripJsonFences(raw);
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (_) {
+      send({ type: 'error', message: 'AI could not extract structured trip data from this spreadsheet. Try a simpler format.' });
+      return res.end();
+    }
+    if (!parsed.title) {
+      send({ type: 'error', message: 'AI could not parse a trip title from the spreadsheet.' });
+      return res.end();
+    }
+
+    // Geocode stops one-by-one so we can stream per-stop progress.
+    const rawStops = (parsed.stops || []).filter(s => s.name?.trim());
+    const geocodedStops = [];
+    for (let i = 0; i < rawStops.length; i++) {
+      const s = rawStops[i];
+      send({ type: 'geocoding', current: i + 1, total: rawStops.length, name: s.name.trim() });
+      const geocoded = await geocodeStop(s.name.trim(), s.address || null);
+      const fallbackLat = Number.isFinite(Number(s.lat)) ? Number(s.lat) : null;
+      const fallbackLng = Number.isFinite(Number(s.lng)) ? Number(s.lng) : null;
+      geocodedStops.push({
+        name: s.name.trim(),
+        address: geocoded?.address || s.address || null,
+        lat: geocoded?.lat ?? fallbackLat,
+        lng: geocoded?.lng ?? fallbackLng,
+        pinType: s.pinType || 'GENERAL',
+        notes: s.notes || null,
+        targetDate: s.targetDate || null,
+        geocodeOk: !!(geocoded?.lat),
+      });
+    }
+
+    // Best-effort: extract packing list and itinerary in parallel.
+    let items = [];
+    let days = [];
+    const [itemsResult, daysResult] = await Promise.allSettled([
+      (async () => {
+        send({ type: 'status', message: 'Extracting packing list…' });
+        let r = await callGemini(itemImportPrompt(sheetText));
+        r = stripJsonFences(r);
+        return JSON.parse(r);
+      })(),
+      (async () => {
+        send({ type: 'status', message: 'Extracting daily itinerary…' });
+        let r = await callGemini(itineraryImportPrompt(sheetText));
+        r = stripJsonFences(r);
+        return JSON.parse(r);
+      })(),
+    ]);
+    if (itemsResult.status === 'fulfilled' && Array.isArray(itemsResult.value)) items = itemsResult.value;
+    if (daysResult.status === 'fulfilled' && Array.isArray(daysResult.value)) days = daysResult.value;
+
+    send({ type: 'done', data: {
+      title: parsed.title,
+      description: parsed.description || null,
+      startDate: parsed.startDate || null,
+      endDate: parsed.endDate || null,
+      stops: geocodedStops,
+      items,
+      days,
+    }});
+    res.end();
+  } catch (err) {
+    console.error('Import preview error:', err);
+    send({ type: 'error', message: 'An unexpected error occurred during import. Please try again.' });
+    res.end();
+  }
+});
+
+// ── POST /api/import/trip/confirm  (create trip from already-reviewed data) ───
+router.post('/trip/confirm', requireAuth, async (req, res, next) => {
+  try {
+    const { title, description, startDate, endDate, stops, items, days } = req.body;
+    if (!title?.trim()) return res.status(400).json({ error: 'Trip title is required' });
+
+    const trip = await prisma.trip.create({
+      data: {
+        title: title.trim(),
+        description: description || null,
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
+        userId: req.user.id,
+      }
+    });
+
+    const validStops = (stops || []).filter(s => s.name?.trim());
+    for (let i = 0; i < validStops.length; i++) {
+      const s = validStops[i];
+      await prisma.stop.create({
+        data: {
+          tripId: trip.id,
+          name: s.name.trim(),
+          address: s.address || null,
+          lat: Number.isFinite(Number(s.lat)) ? Number(s.lat) : 0,
+          lng: Number.isFinite(Number(s.lng)) ? Number(s.lng) : 0,
+          pinType: s.pinType || 'GENERAL',
+          notes: s.notes || null,
+          targetDate: s.targetDate ? new Date(s.targetDate) : null,
+          order: i,
+        }
+      });
+    }
+
+    let listsCreated = 0;
+    let daysCreated = 0;
+    try {
+      const created = await createImportedItems(trip.id, items || []);
+      listsCreated = created.length;
+    } catch (err) {
+      console.warn('Confirm items creation failed:', err.message);
+    }
+    try {
+      daysCreated = await createImportedItinerary(trip.id, days || []);
+    } catch (err) {
+      console.warn('Confirm days creation failed:', err.message);
+    }
+
+    res.json({ tripId: trip.id, title: trip.title, stopsCreated: validStops.length, listsCreated, daysCreated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── POST /api/import/trip  (no :tripId param — creates a new trip) ────────────
 router.post('/trip', requireAuth, upload.single('file'), async (req, res, next) => {
   try {
@@ -274,38 +456,7 @@ router.post('/trip', requireAuth, upload.single('file'), async (req, res, next) 
     const sheetText = parseSheetToText(req.file.buffer, req.file.mimetype, req.file.originalname);
     if (!sheetText.trim()) return res.status(400).json({ error: 'Spreadsheet appears empty' });
 
-    const prompt = `You are a travel app data importer. The user uploaded a spreadsheet to create a road trip.
-
-Here is the raw CSV data from the spreadsheet:
-${sheetText}
-
-Extract trip information and return ONLY valid JSON (no markdown, no explanation) matching this schema exactly:
-{
-  "title": "string — trip name",
-  "description": "string or null",
-  "startDate": "ISO date string or null",
-  "endDate": "ISO date string or null",
-  "stops": [
-    {
-      "name": "string — place name",
-      "address": "string or null",
-      "lat": number or null,
-      "lng": number or null,
-      "pinType": "GENERAL|STAY|HOTEL|CAMPGROUND|HIKING_TRAIL|RESTAURANT|ATTRACTION|GAS_STATION|AIRPORT|PARKING|OTHER",
-      "notes": "string or null",
-      "targetDate": "ISO datetime string or null"
-    }
-  ]
-}
-
-Rules:
-- stops must be in order of travel
-- If lat/lng not present in data, set them to null (the app will geocode them)
-- Choose pinType intelligently based on the stop description
-- If no clear trip title, derive one from destination names
-- Only include stops you are confident about; do not invent stops not in the data`;
-
-    let raw = await callGemini(prompt);
+    let raw = await callGemini(tripImportPrompt(sheetText));
     raw = stripJsonFences(raw);
     const parsed = JSON.parse(raw);
 
