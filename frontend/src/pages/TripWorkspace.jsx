@@ -337,16 +337,7 @@ export default function TripWorkspace() {
             const tile = latLngToTile(stop.lat, stop.lng, z);
             urls.push(`https://tile.openstreetmap.org/${z}/${tile.x}/${tile.y}.png`);
           }
-        }, [id, trip?.title, route, routeStops, savedStops]);
-
-        useEffect(() => {
-          const handler = () => {
-            setActiveTab('map');
-            prepareOffline();
-          };
-          window.addEventListener('tripify:offline-prep-request', handler);
-          return () => window.removeEventListener('tripify:offline-prep-request', handler);
-        }, [prepareOffline]);
+        }
         await Promise.all(urls.map(url =>
           fetch(url, { mode: 'no-cors' })
             .then(res => cache.put(url, res))
@@ -359,7 +350,16 @@ export default function TripWorkspace() {
     } finally {
       setOfflinePreparing(false);
     }
-  }
+  }, [id, trip?.title, route, routeStops, savedStops]);
+
+  useEffect(() => {
+    const handler = () => {
+      setActiveTab('map');
+      prepareOffline();
+    };
+    window.addEventListener('tripify:offline-prep-request', handler);
+    return () => window.removeEventListener('tripify:offline-prep-request', handler);
+  }, [prepareOffline]);
 
   const openWhatsAroundInAi = useCallback((stop) => {
     setSelectedStop(null);
