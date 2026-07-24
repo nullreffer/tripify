@@ -62,21 +62,22 @@ function StopRow({ stop, index, nextStop, route, onSelect, onReached, onDelete, 
   );
 }
 
-export default function StopList({ stops, route, onSelect, onReorder, onReached, onDelete, onAdd, filterType, onFilterChange }) {
+export default function StopList({ stops, route, onSelect, onReorder, onReached, onDelete, onAdd, filterType, onFilterChange, stopsTab, onStopsTabChange }) {
   const [activeId, setActiveId] = useState(null);
   const routeStops = stops.filter(s => !s?.metadata?.savedForLater);
   const savedStops = stops.filter(s => s?.metadata?.savedForLater);
   const nextStop = routeStops.find(s => !s.reached);
 
+  // Active tab: 'route' or 'saved'
+  const activeTab = stopsTab || 'route';
+
   // Index of the last reached stop — nothing can be dragged into or before this zone
   const lastReachedIdx = routeStops.reduce((acc, s, i) => s.reached ? i : acc, -1);
 
-  // Which pin types actually appear in this trip (for filter pills)
-  const presentTypes = [...new Set(stops.map(s => s?.metadata?.savedForLater ? '__saved__' : s.pinType).filter(Boolean))];
-  const filteredStops = filterType
-    ? (filterType === '__saved__'
-      ? savedStops
-      : routeStops.filter(s => s.pinType === filterType))
+  // Which pin types actually appear in route stops (for filter pills, only on route tab)
+  const presentTypes = [...new Set(routeStops.map(s => s.pinType).filter(Boolean))];
+  const filteredRouteStops = filterType
+    ? routeStops.filter(s => s.pinType === filterType)
     : routeStops;
 
   const sensors = useSensors(
@@ -85,7 +86,6 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
   );
 
   function handleDragEnd(event) {
-    if (filterType === '__saved__') return;
     const { active, over } = event;
     setActiveId(null);
     if (!over || active.id === over.id) return;
@@ -98,6 +98,9 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
     onReorder(arrayMove(routeStops, oldIdx, newIdx));
   }
 
+  const displaySaved = activeTab === 'saved';
+  const displayStops = displaySaved ? savedStops : filteredRouteStops;
+
   return (
     <div className="stop-list">
       <div className="stop-list-header">
@@ -105,15 +108,31 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
         <button className="btn-primary btn-sm" onClick={onAdd}>+ Add Stop</button>
       </div>
 
-      {/* Type filter pills */}
-      {presentTypes.length > 1 && (
+      {/* Route / Saved tabs */}
+      <div className="stops-tabs">
+        <button
+          className={`stops-tab${activeTab === 'route' ? ' active' : ''}`}
+          onClick={() => onStopsTabChange?.('route')}
+        >
+          🗺 Route {routeStops.length > 0 && <span className="stops-tab-count">{routeStops.length}</span>}
+        </button>
+        <button
+          className={`stops-tab${activeTab === 'saved' ? ' active' : ''}`}
+          onClick={() => onStopsTabChange?.('saved')}
+        >
+          🔖 Saved {savedStops.length > 0 && <span className="stops-tab-count">{savedStops.length}</span>}
+        </button>
+      </div>
+
+      {/* Type filter pills — only on route tab */}
+      {!displaySaved && presentTypes.length > 1 && (
         <div className="stop-filter-row">
           <button
             className={`stop-filter-pill${!filterType ? ' active' : ''}`}
             onClick={() => onFilterChange?.(null)}
           >All</button>
           {presentTypes.map(type => {
-            const pt = type === '__saved__' ? { emoji: '🔖', label: 'Saved for later' } : (PIN_TYPES[type] || PIN_TYPES.GENERAL);
+            const pt = PIN_TYPES[type] || PIN_TYPES.GENERAL;
             return (
               <button
                 key={type}
@@ -127,15 +146,41 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
         </div>
       )}
 
-      {routeStops.length === 0 && savedStops.length === 0 ? (
+      {displayStops.length === 0 ? (
         <div className="stop-list-empty">
-          <span>No stops yet</span>
-          <button className="btn-primary" onClick={onAdd}>Add your first stop</button>
+          {displaySaved ? (
+            <>
+              <span>No saved stops yet</span>
+              <p className="stop-list-empty-sub">Tap 🔖 on a search pin to save for later</p>
+            </>
+          ) : filterType ? (
+            <>
+              <span>No stops match filter</span>
+              <button className="btn-ghost btn-sm" onClick={() => onFilterChange?.(null)}>Clear filter</button>
+            </>
+          ) : (
+            <>
+              <span>No stops yet</span>
+              <button className="btn-primary" onClick={onAdd}>Add your first stop</button>
+            </>
+          )}
         </div>
-      ) : filteredStops.length === 0 ? (
-        <div className="stop-list-empty">
-          <span>No stops match filter</span>
-          <button className="btn-ghost btn-sm" onClick={() => onFilterChange?.(null)}>Clear filter</button>
+      ) : displaySaved ? (
+        <div className="stop-rows">
+          {displayStops.map(stop => (
+            <StopRow
+              key={stop.id}
+              stop={stop}
+              index={null}
+              nextStop={null}
+              route={null}
+              onSelect={onSelect}
+              onReached={onReached}
+              onDelete={onDelete}
+              isReachedLocked
+              hideArrive
+            />
+          ))}
         </div>
       ) : (
         <DndContext
@@ -144,23 +189,23 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
           onDragStart={e => setActiveId(e.active.id)}
           onDragEnd={handleDragEnd}
         >
-          <SortableContext items={filteredStops.map(s => s.id)} strategy={verticalListSortingStrategy}>
+          <SortableContext items={displayStops.map(s => s.id)} strategy={verticalListSortingStrategy}>
             <div className="stop-rows">
-              {filteredStops.map((stop, idx) => {
-                // Compute the real index in the full (unfiltered) list for route leg lookup
-                const realIdx = stops.findIndex(s => s.id === stop.id);
+              {displayStops.map((stop, idx) => {
+                // Compute the real index in the full (unfiltered) route list for route leg lookup
+                const realIdx = routeStops.findIndex(s => s.id === stop.id);
                 return (
                   <StopRow
                     key={stop.id}
                     stop={stop}
-                    index={filterType === '__saved__' ? null : realIdx}
+                    index={realIdx}
                     nextStop={nextStop}
                     route={route}
                     onSelect={onSelect}
                     onReached={onReached}
                     onDelete={onDelete}
-                    isReachedLocked={stop.reached || !!stop?.metadata?.savedForLater}
-                    hideArrive={filterType === '__saved__' || !!stop?.metadata?.savedForLater}
+                    isReachedLocked={stop.reached}
+                    hideArrive={false}
                   />
                 );
               })}
@@ -174,27 +219,6 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
             ) : null}
           </DragOverlay>
         </DndContext>
-      )}
-      {!filterType && savedStops.length > 0 && (
-        <div className="saved-stops-section">
-          <h3>Saved for later</h3>
-          <div className="stop-rows">
-            {savedStops.map(stop => (
-              <StopRow
-                key={stop.id}
-                stop={stop}
-                index={null}
-                nextStop={null}
-                route={null}
-                onSelect={onSelect}
-                onReached={onReached}
-                onDelete={onDelete}
-                isReachedLocked
-                hideArrive
-              />
-            ))}
-          </div>
-        </div>
       )}
     </div>
   );

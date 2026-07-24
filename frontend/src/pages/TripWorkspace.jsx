@@ -55,6 +55,8 @@ export default function TripWorkspace() {
 
   // Stop type filter — shared between list and map views
   const [stopTypeFilter, setStopTypeFilter] = useState(null);
+  // Stops sub-tab: 'route' | 'saved'
+  const [stopsTab, setStopsTab] = useState('route');
 
   // Map area search mode
   const [mapSearchMode, setMapSearchMode] = useState(false);
@@ -291,9 +293,23 @@ export default function TripWorkspace() {
   }, []);
 
   const handleAddStop = useCallback(async (stopData) => {
-    await tripData.addStop(stopData);
+    const beforeAdd = [...routeStops];
+    const newStop = await tripData.addStop(stopData);
     setShowSearch(false);
-  }, [tripData]);
+    // Insert near the nearest existing route stop (same logic as map search pin)
+    if (beforeAdd.length > 0 && newStop && !stopData.metadata?.savedForLater) {
+      const nearestIdx = beforeAdd.reduce((best, s, i) => {
+        const d = Math.hypot(s.lat - stopData.lat, s.lng - stopData.lng);
+        return d < best.d ? { i, d } : best;
+      }, { i: 0, d: Infinity }).i;
+      const newOrder = [
+        ...beforeAdd.slice(0, nearestIdx + 1),
+        newStop,
+        ...beforeAdd.slice(nearestIdx + 1),
+      ];
+      await tripData.reorderStops([...newOrder, ...savedStops]);
+    }
+  }, [tripData, routeStops, savedStops]);
 
   // Mark reached from any tab — always show photo prompt when marking as reached
   const handleMarkReached = useCallback(async (stopId, reached = true) => {
@@ -319,6 +335,13 @@ export default function TripWorkspace() {
     try {
       setOfflinePreparing(true);
       setOfflineStatus('');
+      const allStops = [...routeStops, ...savedStops];
+      // Resolve approximate area names using reverse geocode (state/region level)
+      const areaNames = [];
+      for (const stop of allStops) {
+        const state = stop.address?.split(',').slice(-2, -1)[0]?.trim();
+        if (state && !areaNames.includes(state)) areaNames.push(state);
+      }
       const snapshot = {
         tripId: id,
         tripTitle: trip?.title,
@@ -326,13 +349,14 @@ export default function TripWorkspace() {
         route,
         routeStops,
         savedStops,
+        downloadedAreas: areaNames,
       };
       localStorage.setItem(`tripify-offline-${id}`, JSON.stringify(snapshot));
       if ('caches' in window) {
         const cache = await caches.open(OFFLINE_CACHE_NAME);
         const zoomLevels = [8, 10, 12];
         const urls = [];
-        for (const stop of [...routeStops, ...savedStops]) {
+        for (const stop of allStops) {
           for (const z of zoomLevels) {
             const tile = latLngToTile(stop.lat, stop.lng, z);
             urls.push(`https://tile.openstreetmap.org/${z}/${tile.x}/${tile.y}.png`);
@@ -344,7 +368,7 @@ export default function TripWorkspace() {
             .catch(() => null)
         ));
       }
-      setOfflineStatus('Offline route + pins saved.');
+      setOfflineStatus(`Downloaded ${allStops.length} area${allStops.length !== 1 ? 's' : ''} around route.`);
     } catch {
       setOfflineStatus('Offline prep partially completed.');
     } finally {
@@ -449,9 +473,6 @@ export default function TripWorkspace() {
             </button>
             <button className="map-ctrl-btn map-ctrl-trails" title="Find trails on AllTrails" onClick={handleFindTrails}>
               <span className="map-ctrl-icon">🥾</span>
-            </button>
-            <button className="map-ctrl-btn" title="Prepare offline maps" onClick={prepareOffline} disabled={offlinePreparing}>
-              <span className="map-ctrl-icon">{offlinePreparing ? '…' : '⬇️'}</span>
             </button>
           </div>
           {showMapLayers && (
@@ -622,6 +643,8 @@ export default function TripWorkspace() {
                 onAdd={() => setShowSearch(true)}
                 filterType={stopTypeFilter}
                 onFilterChange={setStopTypeFilter}
+                stopsTab={stopsTab}
+                onStopsTabChange={setStopsTab}
               />
             )}
             {activeTab === 'days' && (
@@ -678,7 +701,27 @@ export default function TripWorkspace() {
               />
             )}
             {activeTab === 'ai' && (
-              <AiView tripId={id} tripName={trip?.title} stops={stops} route={route} units={units} autoPromptRequest={aiPromptRequest} onAutoPromptDone={() => setAiPromptRequest(null)} />
+              <AiView
+                tripId={id}
+                tripName={trip?.title}
+                stops={stops}
+                route={route}
+                units={units}
+                autoPromptRequest={aiPromptRequest}
+                onAutoPromptDone={() => setAiPromptRequest(null)}
+                onOpenMapSearch={(query) => {
+                  setActiveTab('map');
+                  setMapSearchMode(true);
+                  setMapSearchQuery(query);
+                  setMapSearchResults([]);
+                  setSelectedSearchPin(null);
+                  // Trigger the search after switching tabs
+                  setTimeout(() => handleMapSearchQuery(query), 100);
+                }}
+                onFlyToStop={(stop) => {
+                  handleOpenStop(stop);
+                }}
+              />
             )}
             {activeTab === 'more' && (
               <MoreView
@@ -695,6 +738,10 @@ export default function TripWorkspace() {
                 onUpdateTrip={tripData.updateTrip}
                 onDeleteTrip={async () => { await tripData.deleteTrip(); navigate('/'); }}
                 onNavigate={tab => setActiveTab(tab)}
+                onDownloadOffline={prepareOffline}
+                offlineDownloading={offlinePreparing}
+                offlineStatus={offlineStatus}
+                tripId={id}
               />
             )}
             {activeTab === 'gallery' && (

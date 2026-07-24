@@ -143,7 +143,9 @@ ${tripContext}
 Use trip data when answering trip-specific questions.
 You may also answer broader travel questions (e.g., suggestions near a route) using general knowledge, but clearly label those as general suggestions not sourced from this itinerary.
 If specific itinerary information is missing, say so rather than inventing trip facts.
-Do not make up stops, dates, or reservations that aren't in the trip data.`;
+Do not make up stops, dates, or reservations that aren't in the trip data.
+
+IMPORTANT: When you mention specific places, landmarks, attractions, restaurants, parks, museums, or other named locations that a user could visit or navigate to, wrap them in double square brackets, like [[Golden Gate Bridge]] or [[Yellowstone National Park]]. This allows the app to turn those names into interactive map links. Only do this for concrete, navigable places — not for generic concepts, cities used as general references, or vague suggestions.`;
 
       const result = await model.generateContent([systemPrompt, message.trim()]);
       reply = result.response.text();

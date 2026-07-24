@@ -12,6 +12,11 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Lock screen to portrait mode (respects system override on iOS via manifest orientation)
+if (screen?.orientation?.lock) {
+  screen.orientation.lock('portrait').catch(() => {});
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />

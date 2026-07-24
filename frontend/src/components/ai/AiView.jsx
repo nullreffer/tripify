@@ -11,7 +11,47 @@ const SUGGESTIONS = [
   'Any tips for road tripping with a camper van?',
 ];
 
-export default function AiView({ tripId, tripName, autoPromptRequest, onAutoPromptDone }) {
+// Parse a text string into segments: plain text and [[location]] links
+function parseLocationLinks(text) {
+  const parts = [];
+  const regex = /\[\[([^\]]+)\]\]/g;
+  let last = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push({ type: 'text', value: text.slice(last, match.index) });
+    parts.push({ type: 'location', value: match[1] });
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parts.push({ type: 'text', value: text.slice(last) });
+  return parts;
+}
+
+function MessageLine({ line, stops, onLocationClick }) {
+  const parts = parseLocationLinks(line);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.type === 'location') {
+          // Check if there's a matching stop (case-insensitive)
+          const matchedStop = stops?.find(s => s.name.toLowerCase() === part.value.toLowerCase());
+          return (
+            <button
+              key={i}
+              className="ai-location-link"
+              onClick={() => onLocationClick?.(part.value, matchedStop)}
+              title={matchedStop ? `View ${part.value} on map` : `Search for ${part.value} on map`}
+            >
+              📍 {part.value}
+            </button>
+          );
+        }
+        return <React.Fragment key={i}>{part.value}</React.Fragment>;
+      })}
+    </>
+  );
+}
+
+export default function AiView({ tripId, tripName, stops, route, autoPromptRequest, onAutoPromptDone, onOpenMapSearch, onFlyToStop }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -74,6 +114,14 @@ export default function AiView({ tripId, tripName, autoPromptRequest, onAutoProm
     onAutoPromptDone?.();
   }, [autoPromptRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleLocationClick = (name, matchedStop) => {
+    if (matchedStop) {
+      onFlyToStop?.(matchedStop);
+    } else {
+      onOpenMapSearch?.(name);
+    }
+  };
+
   return (
     <div className="ai-view">
       <div className="ai-header">
@@ -100,7 +148,10 @@ export default function AiView({ tripId, tripName, autoPromptRequest, onAutoProm
             {msg.role === 'assistant' && <div className="ai-avatar">✨</div>}
             <div className="ai-bubble">
               {msg.content.split('\n').map((line, j) => (
-                <React.Fragment key={j}>{line}<br /></React.Fragment>
+                <React.Fragment key={j}>
+                  <MessageLine line={line} stops={stops} onLocationClick={handleLocationClick} />
+                  <br />
+                </React.Fragment>
               ))}
             </div>
           </div>

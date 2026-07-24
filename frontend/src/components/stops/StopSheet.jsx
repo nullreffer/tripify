@@ -53,10 +53,22 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
   const [showReservationMenu, setShowReservationMenu] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const isSaved = !!stop?.metadata?.savedForLater;
   const pt = PIN_TYPES[stop.pinType] || PIN_TYPES.GENERAL;
-  const stopIdx = stops.findIndex(s => s.id === stop.id);
-  const prevStop = stopIdx > 0 ? stops[stopIdx - 1] : null;
-  const leg = route?.legs?.[stopIdx];
+
+  // For route stops: use the stop's index in the route stops list for leg lookup
+  const routeStops = stops.filter(s => !s?.metadata?.savedForLater);
+  const stopIdx = routeStops.findIndex(s => s.id === stop.id);
+  const prevStop = stopIdx > 0 ? routeStops[stopIdx - 1] : null;
+  const leg = !isSaved ? route?.legs?.[stopIdx] : null;
+
+  // For saved stops: find nearest route stop by straight-line distance
+  const nearestRouteStop = isSaved && routeStops.length > 0
+    ? routeStops.reduce((best, s) => {
+        const d = Math.hypot(s.lat - stop.lat, s.lng - stop.lng);
+        return d < best.d ? { stop: s, d } : best;
+      }, { stop: routeStops[0], d: Infinity }).stop
+    : null;
 
   const handleSave = async () => {
     setSaving(true);
@@ -69,7 +81,7 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
     const to = `${stop.lat},${stop.lng}`;
     const fromCoords = fromCurrentLocation
       ? (userLocation ? `${userLocation[0]},${userLocation[1]}` : '')
-      : (prevStop ? `${prevStop.lat},${prevStop.lng}` : '');
+      : (prevStop ? `${prevStop.lat},${prevStop.lng}` : nearestRouteStop ? `${nearestRouteStop.lat},${nearestRouteStop.lng}` : '');
     const isApple = /iPhone|iPad|Mac/.test(navigator.userAgent);
     const url = isApple
       ? `maps://maps.apple.com/?saddr=${fromCoords}&daddr=${to}`
@@ -145,6 +157,12 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                   🛣 {formatDistance(leg.distance)} · {formatDuration(leg.duration)} from previous stop
                 </div>
               )}
+              {isSaved && nearestRouteStop && (
+                <div className="sheet-detail-row">
+                  📍 Nearest route pin: <strong>{nearestRouteStop.name}</strong>
+                  {' '}({(Math.hypot(nearestRouteStop.lat - stop.lat, nearestRouteStop.lng - stop.lng) * 111).toFixed(0)} km away)
+                </div>
+              )}
               {stop.notes && <div className="sheet-notes">{stop.notes}</div>}
               {isStayType && (metadata?.checkIn || metadata?.checkOut) && (
                 <div className="sheet-detail-row">
@@ -169,9 +187,14 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                 <button className="sheet-action-btn" onClick={() => handleDirections(true)}>
                   📍 From Here
                 </button>
-                {prevStop && (
+                {!isSaved && prevStop && (
                   <button className="sheet-action-btn" onClick={() => handleDirections(false)}>
                     🔁 From Prev
+                  </button>
+                )}
+                {isSaved && nearestRouteStop && (
+                  <button className="sheet-action-btn" onClick={() => handleDirections(false)}>
+                    🔁 From Nearest
                   </button>
                 )}
                 <button className="sheet-action-btn" onClick={onOpenNearbySearch}>
