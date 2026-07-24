@@ -310,6 +310,7 @@ function DayCard({ day, onUpdate, onDelete, onAddEntry, onUpdateEntry, onDeleteE
 
 // ── Main DaysView ─────────────────────────────────────────────────────────────
 export default function DaysView({ days, tripId, stops = [], onAddDay, onUpdateDay, onDeleteDay, onAddEntry, onUpdateEntry, onDeleteEntry, onAddReservation, onUpdateReservation }) {
+  const [addingDay, setAddingDay] = useState(false);
   const handleReservation = async (entryId, data) => {
     // Find if there's already a reservation for this entry
     const day = days.find(d => (d.entries || []).some(e => e.id === entryId));
@@ -369,6 +370,17 @@ export default function DaysView({ days, tripId, stops = [], onAddDay, onUpdateD
           tripId={tripId}
         />
       ))}
+
+      {addingDay ? (
+        <div className="day-card adding">
+          <DayForm
+            onSave={data => { onAddDay(data); setAddingDay(false); }}
+            onCancel={() => setAddingDay(false)}
+          />
+        </div>
+      ) : (
+        <button className="add-day-btn" onClick={() => setAddingDay(true)}>+ Add Day</button>
+      )}
     </div>
   );
 }

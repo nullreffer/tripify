@@ -2002,6 +2002,7 @@ body {
   text-align: center;
   padding: 2rem 1rem;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 .days-empty-sub { font-size: .85rem; margin-top: .4rem; }
 .days-shower-warning {
@@ -2011,6 +2012,7 @@ body {
   padding: .6rem 1rem;
   font-size: .85rem;
   color: #92400e;
+  flex-shrink: 0;
 }
 
 /* Day Card */
@@ -2019,6 +2021,7 @@ body {
   border: 1.5px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 .day-card.adding { padding: .75rem; }
 
@@ -2208,6 +2211,7 @@ body {
   color: var(--primary);
   font-weight: 600;
   transition: border-color .12s, background .12s;
+  flex-shrink: 0;
 }
 .add-day-btn:hover { border-color: var(--primary); background: #fff7ed; }
 
