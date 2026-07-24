@@ -14,7 +14,14 @@ L.Icon.Default.mergeOptions({
 
 function makeStopIcon(stop, index, isNext) {
   const pt = PIN_TYPES[stop.pinType] || PIN_TYPES.GENERAL;
-  const color = stop.reached ? '#22c55e' : isNext ? '#f97316' : pt.color;
+  const isSavedForLater = !!stop?.metadata?.savedForLater;
+  const color = isSavedForLater
+    ? '#a855f7'
+    : stop.reached
+      ? '#22c55e'
+      : isNext
+        ? '#f97316'
+        : pt.color;
   const border = isNext ? '3px solid #fff' : '2px solid rgba(255,255,255,0.8)';
   const glow = isNext ? '0 0 0 3px #f97316' : '';
   const html = `
@@ -25,7 +32,7 @@ function makeStopIcon(stop, index, isNext) {
       display:flex;align-items:center;justify-content:center;
       font-size:16px;position:relative;cursor:pointer;
     ">
-      ${stop.reached ? '✓' : pt.emoji}
+      ${isSavedForLater ? '🔖' : stop.reached ? '✓' : pt.emoji}
       <div style="
         position:absolute;top:-8px;right:-8px;
         background:#1e293b;color:#fff;
@@ -163,16 +170,30 @@ function RouteLayer({ stops, route }) {
 
 const TripMap = forwardRef(function TripMap(
   { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode,
-    searchPins = [], onSearchPinSelect, searchSelectedId },
+    searchPins = [], onSearchPinSelect, searchSelectedId, mapLayer = 'normal' },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
-  const tileUrl = darkMode
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-  const attribution = darkMode
-    ? '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
-    : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  const tileLayerByMode = {
+    normal: darkMode
+      ? {
+        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      }
+      : {
+        url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      },
+    satellite: {
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      attribution: 'Tiles &copy; Esri',
+    },
+    trails: {
+      url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap',
+    },
+  };
+  const layer = tileLayerByMode[mapLayer] || tileLayerByMode.normal;
 
   const defaultCenter = stops.length > 0
     ? [stops[0].lat, stops[0].lng]
@@ -186,7 +207,7 @@ const TripMap = forwardRef(function TripMap(
         style={{ width: '100%', height: '100%' }}
         zoomControl={false}
       >
-        <TileLayer url={tileUrl} attribution={attribution} />
+        <TileLayer url={layer.url} attribution={layer.attribution} />
         <RouteLayer stops={stops} route={route} />
         <MapInitialFit stops={stops} userLocation={userLocation} />
         <LongPressHandler onLongPress={onLongPress} />

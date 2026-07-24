@@ -83,7 +83,7 @@ function ReadinessDashboard({ stops, days, reservations, categories, route, onNa
     {
       icon: '📍',
       label: 'Progress',
-      value: totalStops > 0 ? `${reachedStops} of ${totalStops} stops reached` : 'Trip not started',
+      value: totalStops > 0 ? `${reachedStops} of ${totalStops} stops arrived` : 'Trip not started',
       status: 'ok',
       tab: 'map',
     },
@@ -273,7 +273,7 @@ export default function MoreView({ trip, stops, route, references, days, reserva
           </div>
           <div className="more-stat">
             <span className="stat-num">{reached}</span>
-            <span className="stat-label">reached</span>
+            <span className="stat-label">arrived</span>
           </div>
           {totalDist && (
             <div className="more-stat">

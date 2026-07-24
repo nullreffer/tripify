@@ -1601,6 +1601,34 @@ body {
   border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
   color: var(--primary);
 }
+.ws-offline-status {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 92px;
+  z-index: 550;
+  padding: .55rem .75rem;
+  border-radius: 10px;
+  font-size: .8rem;
+  font-weight: 600;
+  color: #155e75;
+  background: #ecfeff;
+  border: 1px solid #67e8f9;
+}
+.saved-stops-section {
+  border-top: 1px solid var(--border);
+  padding: .5rem 1rem 0;
+}
+.saved-stops-section h3 {
+  font-size: .88rem;
+  color: var(--text-muted);
+  margin: 0 0 .4rem;
+}
+.reservation-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem;
+}
 
 /* Workspace dark mode map control */
 .workspace-dark .map-ctrl-btn {
