@@ -31,7 +31,9 @@ const TYPE_METADATA = {
   ],
 };
 
-export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch = () => {}, onReach, onDelete, canEdit }) {
+const NOOP = () => {};
+
+export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch = NOOP, onReach, onDelete, canEdit }) {
   const [tab, setTab] = useState('info');
   const [name, setName] = useState(stop.name);
   const [pinType, setPinType] = useState(stop.pinType);
