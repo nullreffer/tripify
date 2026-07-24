@@ -31,8 +31,8 @@ const TYPE_METADATA = {
   ],
 };
 
-export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch, onReach, onDelete, canEdit }) {
-  const [tab, setTab] = useState('info'); // info | edit
+export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch = () => {}, onReach, onDelete, canEdit }) {
+  const [tab, setTab] = useState('info');
   const [name, setName] = useState(stop.name);
   const [pinType, setPinType] = useState(stop.pinType);
   const [notes, setNotes] = useState(stop.notes || '');
@@ -93,7 +93,7 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
               className={`sheet-tab-pill${tab === t ? ' active' : ''}`}
               onClick={() => {
                 if (t === 'nearby') {
-                  onOpenNearbySearch?.();
+                  onOpenNearbySearch();
                   return;
                 }
                 setTab(t);
