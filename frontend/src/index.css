@@ -2552,6 +2552,20 @@ body {
   color: var(--text-muted);
   font-weight: 600;
 }
+.gallery-view {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
+.gallery-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+.gallery-header h3 {
+  margin: 0;
+}
 .more-gallery-grid {
   margin-top: .5rem;
   display: grid;

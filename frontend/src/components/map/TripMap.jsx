@@ -99,6 +99,7 @@ const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
     },
     getCenter() { return map.getCenter(); },
     getBounds() { return map.getBounds(); },
+    getZoom() { return map.getZoom(); },
   }), [map, stops]);
   return null;
 });

@@ -13,6 +13,7 @@ import AiView from '../components/ai/AiView.jsx';
 import MoreView from '../components/more/MoreView.jsx';
 import DaysView from '../components/days/DaysView.jsx';
 import TodayView from '../components/days/TodayView.jsx';
+import GalleryView from '../components/gallery/GalleryView.jsx';
 import { PIN_TYPES } from '../constants/pinTypes.js';
 
 const TABS = [
@@ -26,6 +27,8 @@ const TABS = [
 
 const MAP_CONTROLS_BOTTOM = '12px';
 const MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP = '160px';
+const ALLTRAILS_MIN_ZOOM = 2;
+const ALLTRAILS_MAX_ZOOM = 18;
 
 function resolveMapStyle(setting) {
   if (setting === 'light') return false;
@@ -255,9 +258,10 @@ export default function TripWorkspace() {
 
   const handleFindTrails = useCallback(() => {
     const center = mapRef.current?.getCenter();
+    const zoom = mapRef.current?.getZoom();
     if (center) {
       window.open(
-        `https://www.alltrails.com/explore?lat=${center.lat.toFixed(4)}&lng=${center.lng.toFixed(4)}&zoom=11`,
+        `https://www.alltrails.com/explore?lat=${center.lat.toFixed(4)}&lng=${center.lng.toFixed(4)}${Number.isFinite(zoom) ? `&zoom=${Math.max(ALLTRAILS_MIN_ZOOM, Math.min(ALLTRAILS_MAX_ZOOM, Math.round(zoom)))}` : ''}`,
         '_blank', 'noopener'
       );
     } else {
@@ -581,6 +585,12 @@ export default function TripWorkspace() {
                 onUpdateTrip={tripData.updateTrip}
                 onDeleteTrip={async () => { await tripData.deleteTrip(); navigate('/'); }}
                 onNavigate={tab => setActiveTab(tab)}
+              />
+            )}
+            {activeTab === 'gallery' && (
+              <GalleryView
+                stops={stops}
+                onBack={() => setActiveTab('more')}
                 onOpenStop={stop => handleOpenStop(stop)}
               />
             )}

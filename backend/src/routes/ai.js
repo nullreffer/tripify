@@ -160,7 +160,7 @@ Do not make up stops, dates, or reservations that aren't in the data.`;
       data: { tripId: req.params.tripId, userId: req.user.id, role: 'assistant', content: reply }
     });
 
-    res.json({ message: saved });
+    res.json({ reply, message: saved });
   } catch (err) { next(err); }
 });
 
