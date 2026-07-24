@@ -78,6 +78,26 @@ export default function Settings() {
           <div className="settings-divider" />
 
           <div className="settings-section">
+            <h3>Display</h3>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>Screen orientation</span>
+                <span className="settings-row-hint">Lock to portrait or follow device rotation</span>
+              </div>
+              <ToggleGroup
+                value={settings.orientation}
+                options={[
+                  { value: 'portrait', label: 'Portrait' },
+                  { value: 'auto', label: 'Auto' },
+                ]}
+                onChange={v => update('orientation', v)}
+              />
+            </div>
+          </div>
+
+          <div className="settings-divider" />
+
+          <div className="settings-section">
             <h3>Trails</h3>
             <div className="settings-row">
               <div className="settings-row-label">

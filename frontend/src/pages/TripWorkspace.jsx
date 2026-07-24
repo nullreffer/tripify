@@ -320,6 +320,31 @@ export default function TripWorkspace() {
     }
   }, [tripData, stops]);
 
+  // Move a saved-for-later stop into the main route, inserted after the nearest route stop
+  const handleAddSavedToRoute = useCallback(async (stop) => {
+    const updatedMetadata = { ...stop.metadata };
+    delete updatedMetadata.savedForLater;
+    await tripData.updateStop(stop.id, { metadata: updatedMetadata });
+    // After updating metadata, reorder: insert after nearest route stop
+    const newRouteStops = [...routeStops, { ...stop, metadata: updatedMetadata }];
+    if (routeStops.length > 0) {
+      const nearestIdx = routeStops.reduce((best, s, i) => {
+        const d = Math.hypot(s.lat - stop.lat, s.lng - stop.lng);
+        return d < best.d ? { i, d } : best;
+      }, { i: 0, d: Infinity }).i;
+      const withoutStop = newRouteStops.filter(s => s.id !== stop.id);
+      const reordered = [
+        ...withoutStop.slice(0, nearestIdx + 1),
+        { ...stop, metadata: updatedMetadata },
+        ...withoutStop.slice(nearestIdx + 1),
+      ];
+      await tripData.reorderStops([...reordered, ...savedStops.filter(s => s.id !== stop.id)]);
+    } else {
+      await tripData.reorderStops([{ ...stop, metadata: updatedMetadata }, ...savedStops.filter(s => s.id !== stop.id)]);
+    }
+    setSelectedStop(null);
+  }, [tripData, routeStops, savedStops]);
+
   const nextStop = routeStops.find(s => !s.reached);
   const mapOverlayBottom = activeTab === 'map' && nextStop
     ? MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP
@@ -334,15 +359,49 @@ export default function TripWorkspace() {
   const prepareOffline = useCallback(async () => {
     try {
       setOfflinePreparing(true);
-      setOfflineStatus('');
+      setOfflineStatus('Preparing offline download…');
       const allStops = [...routeStops, ...savedStops];
       // Extract state/region names from Nominatim-style comma-delimited addresses
-      // (expected format: "..., State, Country" — second-to-last segment is state/region)
       const areaNames = [];
       for (const stop of allStops) {
         const state = stop.address?.split(',').slice(-2, -1)[0]?.trim();
         if (state && !areaNames.includes(state)) areaNames.push(state);
       }
+
+      // Build tile URLs: 3×3 neighborhood per stop across multiple zoom levels and map layers
+      const zoomLevels = [8, 10, 12, 14];
+      const urls = new Set();
+      for (const stop of allStops) {
+        for (const z of zoomLevels) {
+          const center = latLngToTile(stop.lat, stop.lng, z);
+          // For lower zooms, just download the center tile; for higher zooms, get 3×3 grid
+          const radius = z >= 12 ? 1 : 0;
+          for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+              const tx = center.x + dx;
+              const ty = center.y + dy;
+              // Standard OSM (normal map)
+              urls.add(`https://tile.openstreetmap.org/${z}/${tx}/${ty}.png`);
+              // Satellite (ArcGIS) — note tile URL uses z/y/x order
+              urls.add(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${ty}/${tx}`);
+              // Trails (OpenTopoMap)
+              urls.add(`https://a.tile.opentopomap.org/${z}/${tx}/${ty}.png`);
+            }
+          }
+        }
+      }
+
+      let downloaded = 0;
+      const totalUrls = urls.size;
+      if ('caches' in window) {
+        const cache = await caches.open(OFFLINE_CACHE_NAME);
+        await Promise.all([...urls].map(url =>
+          fetch(url, { mode: 'no-cors' })
+            .then(res => { cache.put(url, res); downloaded++; })
+            .catch(() => { downloaded++; })
+        ));
+      }
+
       const snapshot = {
         tripId: id,
         tripTitle: trip?.title,
@@ -351,25 +410,12 @@ export default function TripWorkspace() {
         routeStops,
         savedStops,
         downloadedAreas: areaNames,
+        tileCount: totalUrls,
+        // Rough estimate: ~15 KB per tile (OSM avg) across 3 layers
+        estimatedSizeMB: Math.round(totalUrls * 15 / 1024 * 10) / 10,
       };
       localStorage.setItem(`tripify-offline-${id}`, JSON.stringify(snapshot));
-      if ('caches' in window) {
-        const cache = await caches.open(OFFLINE_CACHE_NAME);
-        const zoomLevels = [8, 10, 12];
-        const urls = [];
-        for (const stop of allStops) {
-          for (const z of zoomLevels) {
-            const tile = latLngToTile(stop.lat, stop.lng, z);
-            urls.push(`https://tile.openstreetmap.org/${z}/${tile.x}/${tile.y}.png`);
-          }
-        }
-        await Promise.all(urls.map(url =>
-          fetch(url, { mode: 'no-cors' })
-            .then(res => cache.put(url, res))
-            .catch(() => null)
-        ));
-      }
-      setOfflineStatus(`Downloaded ${allStops.length} area${allStops.length !== 1 ? 's' : ''} around route.`);
+      setOfflineStatus(`Downloaded ~${totalUrls} tiles across normal, satellite, and trail maps.`);
     } catch {
       setOfflineStatus('Offline prep partially completed.');
     } finally {
@@ -785,6 +831,7 @@ export default function TripWorkspace() {
           }}
           onOpenNearbySearch={() => handleOpenStop(selectedStop, { searchNearby: true })}
           onAskWhatsAround={() => openWhatsAroundInAi(selectedStop)}
+          onAddToRoute={handleAddSavedToRoute}
           onReach={() => {
             const wasReached = selectedStop.reached;
             tripData.markReached(selectedStop.id, !wasReached);

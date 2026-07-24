@@ -24,6 +24,14 @@ function makeStopIcon(stop, index, isNext) {
         : pt.color;
   const border = isNext ? '3px solid #fff' : '2px solid rgba(255,255,255,0.8)';
   const glow = isNext ? '0 0 0 3px #f97316' : '';
+  const numberBadge = isSavedForLater ? '' : `
+      <div style="
+        position:absolute;top:-8px;right:-8px;
+        background:#1e293b;color:#fff;
+        border-radius:99px;padding:1px 5px;
+        font-size:10px;font-weight:700;line-height:1.4;
+        border:1.5px solid #fff;
+      ">${index + 1}</div>`;
   const html = `
     <div style="
       width:36px;height:36px;border-radius:50%;
@@ -33,13 +41,7 @@ function makeStopIcon(stop, index, isNext) {
       font-size:16px;position:relative;cursor:pointer;
     ">
       ${isSavedForLater ? '🔖' : stop.reached ? '✓' : pt.emoji}
-      <div style="
-        position:absolute;top:-8px;right:-8px;
-        background:#1e293b;color:#fff;
-        border-radius:99px;padding:1px 5px;
-        font-size:10px;font-weight:700;line-height:1.4;
-        border:1.5px solid #fff;
-      ">${index + 1}</div>
+      ${numberBadge}
     </div>`;
   return L.divIcon({ html, className: '', iconSize: [36, 36], iconAnchor: [18, 36], popupAnchor: [0, -38] });
 }

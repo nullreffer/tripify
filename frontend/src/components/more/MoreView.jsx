@@ -332,6 +332,13 @@ export default function MoreView({ trip, stops, route, references, days, reserva
                 </div>
               </div>
             )}
+            {offlineSnapshot.tileCount > 0 && (
+              <div className="offline-snapshot-stops">
+                ~{offlineSnapshot.tileCount} tiles cached
+                {offlineSnapshot.estimatedSizeMB > 0 && ` · est. ${offlineSnapshot.estimatedSizeMB} MB`}
+                {' · '}normal, satellite &amp; trail maps
+              </div>
+            )}
           </div>
         )}
         {offlineStatus && <p className="offline-status-msg">{offlineStatus}</p>}
