@@ -11,7 +11,7 @@ const SUGGESTIONS = [
   'Any tips for road tripping with a camper van?',
 ];
 
-export default function AiView({ tripId, tripName }) {
+export default function AiView({ tripId, tripName, autoPromptRequest, onAutoPromptDone }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -37,6 +37,15 @@ export default function AiView({ tripId, tripName }) {
   const send = async (text) => {
     const msg = text.trim();
     if (!msg || loading) return;
+    if (/pre-?download|offline map|download map/i.test(msg)) {
+      setInput('');
+      setMessages(prev => [...prev,
+        { role: 'user', content: msg },
+        { role: 'assistant', content: 'Got it — preparing offline maps and saving your current route/pins now.' }
+      ]);
+      window.dispatchEvent(new CustomEvent('tripify:offline-prep-request'));
+      return;
+    }
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: msg }]);
     setLoading(true);
@@ -58,6 +67,12 @@ export default function AiView({ tripId, tripName }) {
       inputRef.current?.focus();
     }
   };
+
+  useEffect(() => {
+    if (!autoPromptRequest?.text) return;
+    send(autoPromptRequest.text);
+    onAutoPromptDone?.();
+  }, [autoPromptRequest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="ai-view">

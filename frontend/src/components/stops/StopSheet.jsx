@@ -31,7 +31,17 @@ const TYPE_METADATA = {
   ],
 };
 
-export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch, onReach, onDelete, canEdit }) {
+const RESERVATION_PROVIDERS = [
+  { name: 'Hotels', appUrl: 'hotels://', webBase: 'https://www.hotels.com/search.do?q-destination=' },
+  { name: 'Booking', appUrl: 'booking://searchresults?ss=', webBase: 'https://www.booking.com/searchresults.html?ss=' },
+  { name: 'Airbnb', appUrl: 'airbnb://search?query=', webBase: 'https://www.airbnb.com/s/' },
+  { name: 'VRBO', appUrl: 'vrbo://search?query=', webBase: 'https://www.vrbo.com/search/keywords:' },
+  { name: 'recreation.gov', appUrl: 'recreationgov://', webBase: 'https://www.recreation.gov/search?q=' },
+  { name: 'parks.canada.ca', appUrl: 'parkscanada://', webBase: 'https://parks.canada.ca/recherche-search?query=' },
+  { name: 'Xanterra', appUrl: 'xanterra://', webBase: 'https://www.xanterra.com/search/?q=' },
+];
+
+export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch, onAskWhatsAround, onReach, onDelete, canEdit }) {
   const [tab, setTab] = useState('info');
   const [name, setName] = useState(stop.name);
   const [pinType, setPinType] = useState(stop.pinType);
@@ -40,6 +50,7 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
     stop.targetDate ? new Date(stop.targetDate).toISOString().slice(0, 16) : ''
   );
   const [metadata, setMetadata] = useState(stop.metadata || {});
+  const [showReservationMenu, setShowReservationMenu] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const pt = PIN_TYPES[stop.pinType] || PIN_TYPES.GENERAL;
@@ -67,6 +78,20 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
   };
 
   const metaFields = TYPE_METADATA[pinType] || [];
+  const isStayType = ['HOTEL', 'STAY', 'CAMPGROUND'].includes(pinType);
+
+  const openReservationProvider = (provider) => {
+    const q = encodeURIComponent(stop.name || '');
+    const webUrl = `${provider.webBase}${q}`;
+    if (!provider.appUrl) {
+      window.open(webUrl, '_blank');
+      return;
+    }
+    const appUrl = `${provider.appUrl}${q}`;
+    const fallback = setTimeout(() => window.open(webUrl, '_blank', 'noopener'), 900);
+    window.location.href = appUrl;
+    setTimeout(() => clearTimeout(fallback), 1200);
+  };
 
   return (
     <div className="sheet-overlay" onClick={onClose}>
@@ -121,6 +146,16 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                 </div>
               )}
               {stop.notes && <div className="sheet-notes">{stop.notes}</div>}
+              {isStayType && (metadata?.checkIn || metadata?.checkOut) && (
+                <div className="sheet-detail-row">
+                  🕒
+                  <span style={{ marginLeft: '6px' }}>
+                    {metadata.checkIn ? `Check-in: ${new Date(metadata.checkIn).toLocaleString()}` : 'Check-in: —'}
+                    {' · '}
+                    {metadata.checkOut ? `Check-out: ${new Date(metadata.checkOut).toLocaleString()}` : 'Check-out: —'}
+                  </span>
+                </div>
+              )}
 
               {/* Type-specific metadata display */}
               {metaFields.map(f => metadata[f.key] && (
@@ -142,12 +177,20 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                 <button className="sheet-action-btn" onClick={onOpenNearbySearch}>
                   🔍 Nearby
                 </button>
+                <button className="sheet-action-btn" onClick={onAskWhatsAround}>
+                  ✨ What’s around
+                </button>
+                {isStayType && (
+                  <button className="sheet-action-btn" onClick={() => setShowReservationMenu(true)}>
+                    🏨 Open reservation
+                  </button>
+                )}
                 {canEdit && (
                   <button
                     className={`sheet-action-btn${stop.reached ? ' btn-green' : ' btn-orange'}`}
                     onClick={onReach}
                   >
-                    {stop.reached ? '↩ Unreached' : '✓ Reached'}
+                    {stop.reached ? '↩ Unarrived' : '✓ Arrived'}
                   </button>
                 )}
                 {canEdit && (
@@ -208,6 +251,30 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
           )}
         </div>
       </div>
+      {showReservationMenu && (
+        <div className="sheet-overlay" onClick={() => setShowReservationMenu(false)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-header">
+              <h3>Open reservation in…</h3>
+              <button className="sheet-close" onClick={() => setShowReservationMenu(false)}>×</button>
+            </div>
+            <div className="sheet-body">
+              <div className="reservation-provider-grid">
+                {RESERVATION_PROVIDERS.map(provider => (
+                  <button
+                    key={provider.name}
+                    className="sheet-action-btn"
+                    onClick={() => openReservationProvider(provider)}
+                  >
+                    {provider.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

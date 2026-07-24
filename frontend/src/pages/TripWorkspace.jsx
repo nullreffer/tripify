@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTrip } from '../hooks/useTrip.js';
 import { getRoute, formatDistance, formatDuration } from '../services/routing.js';
@@ -29,6 +29,7 @@ const MAP_CONTROLS_BOTTOM = '12px';
 const MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP = '160px';
 const ALLTRAILS_MIN_ZOOM = 2;
 const ALLTRAILS_MAX_ZOOM = 18;
+const OFFLINE_CACHE_NAME = 'tripify-map-tiles-v1';
 
 function resolveMapStyle(setting) {
   if (setting === 'light') return false;
@@ -62,6 +63,11 @@ export default function TripWorkspace() {
   const [mapSearching, setMapSearching] = useState(false);
   const [selectedSearchPin, setSelectedSearchPin] = useState(null);
   const [showMapFilters, setShowMapFilters] = useState(false);
+  const [showMapLayers, setShowMapLayers] = useState(false);
+  const [mapLayer, setMapLayer] = useState('normal');
+  const [offlinePreparing, setOfflinePreparing] = useState(false);
+  const [offlineStatus, setOfflineStatus] = useState('');
+  const [aiPromptRequest, setAiPromptRequest] = useState(null);
   const mapSearchDebounce = useRef(null);
 
   // Photo prompt after reaching a stop
@@ -99,10 +105,13 @@ export default function TripWorkspace() {
   }, []);
 
   // Recalculate route whenever stops change
+  const routeStops = useMemo(() => stops.filter(s => !s?.metadata?.savedForLater), [stops]);
+  const savedStops = useMemo(() => stops.filter(s => s?.metadata?.savedForLater), [stops]);
+
   useEffect(() => {
-    if (stops.length < 2) { setRoute(null); return; }
-    getRoute(stops).then(setRoute);
-  }, [stops]);
+    if (routeStops.length < 2) { setRoute(null); return; }
+    getRoute(routeStops).then(setRoute);
+  }, [routeStops]);
 
   // Auto-generate itinerary days from stops when days tab is first opened and no days exist
   const daysGenerated = useRef(false);
@@ -140,14 +149,14 @@ export default function TripWorkspace() {
   }, [activeTab, days.length, stops, loading, tripData]);
 
   // ── Geographic progress ─────────────────────────────────────────────
-  const reachedCount = stops.filter(s => s.reached).length;
-  const lastReachedIdx = stops.reduce((acc, s, i) => s.reached ? i : acc, -1);
+  const reachedCount = routeStops.filter(s => s.reached).length;
+  const lastReachedIdx = routeStops.reduce((acc, s, i) => s.reached ? i : acc, -1);
   const completedDist = route?.legs
     ? route.legs.slice(0, Math.max(0, lastReachedIdx)).reduce((s, l) => s + (l.distance || 0), 0)
     : 0;
   const remainingDist = route ? (route.distance || 0) - completedDist : 0;
   const units = settings.units;
-  const availableStopTypes = [...new Set(stops.map(s => s.pinType).filter(Boolean))];
+  const availableStopTypes = [...new Set(stops.map(s => s?.metadata?.savedForLater ? '__saved__' : s.pinType).filter(Boolean))];
 
   // ── Map overlay handlers ─────────────────────────────────────────────
   const handleMyLocation = useCallback(() => {
@@ -230,7 +239,8 @@ export default function TripWorkspace() {
   }
 
   const handleAddSearchPin = useCallback(async (pin) => {
-    const beforeAdd = [...stops]; // snapshot before adding
+    const saveForLater = !!pin?.saveForLater;
+    const beforeAdd = [...routeStops]; // snapshot before adding
     const newStop = await tripData.addStop({
       name: pin.name,
       address: pin.displayName,
@@ -238,9 +248,10 @@ export default function TripWorkspace() {
       lng: pin.lng,
       pinType: guessPinType(pin),
       notes: '',
+      metadata: saveForLater ? { savedForLater: true } : undefined,
     });
     // Insert after nearest existing stop
-    if (beforeAdd.length > 0 && newStop) {
+    if (!saveForLater && beforeAdd.length > 0 && newStop) {
       const nearestIdx = beforeAdd.reduce((best, s, i) => {
         const d = Math.hypot(s.lat - pin.lat, s.lng - pin.lng);
         return d < best.d ? { i, d } : best;
@@ -250,11 +261,15 @@ export default function TripWorkspace() {
         newStop,
         ...beforeAdd.slice(nearestIdx + 1),
       ];
-      await tripData.reorderStops(newOrder);
+      await tripData.reorderStops([...newOrder, ...savedStops]);
     }
     exitMapSearch();
     setSelectedStop(newStop);
-  }, [stops, tripData, exitMapSearch]);
+  }, [routeStops, savedStops, tripData, exitMapSearch]);
+
+  const handleReorderRouteStops = useCallback(async (newRouteStops) => {
+    await tripData.reorderStops([...newRouteStops, ...savedStops]);
+  }, [tripData, savedStops]);
 
   const handleFindTrails = useCallback(() => {
     const center = mapRef.current?.getCenter();
@@ -289,10 +304,71 @@ export default function TripWorkspace() {
     }
   }, [tripData, stops]);
 
-  const nextStop = stops.find(s => !s.reached);
+  const nextStop = routeStops.find(s => !s.reached);
   const mapOverlayBottom = activeTab === 'map' && nextStop
     ? MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP
     : MAP_CONTROLS_BOTTOM;
+
+  const filteredMapStops = stopTypeFilter
+    ? (stopTypeFilter === '__saved__'
+      ? savedStops
+      : routeStops.filter(s => s.pinType === stopTypeFilter))
+    : stops;
+
+  const prepareOffline = useCallback(async () => {
+    try {
+      setOfflinePreparing(true);
+      setOfflineStatus('');
+      const snapshot = {
+        tripId: id,
+        tripTitle: trip?.title,
+        updatedAt: new Date().toISOString(),
+        route,
+        routeStops,
+        savedStops,
+      };
+      localStorage.setItem(`tripify-offline-${id}`, JSON.stringify(snapshot));
+      if ('caches' in window) {
+        const cache = await caches.open(OFFLINE_CACHE_NAME);
+        const zoomLevels = [8, 10, 12];
+        const urls = [];
+        for (const stop of [...routeStops, ...savedStops]) {
+          for (const z of zoomLevels) {
+            const tile = latLngToTile(stop.lat, stop.lng, z);
+            urls.push(`https://tile.openstreetmap.org/${z}/${tile.x}/${tile.y}.png`);
+          }
+        }, [id, trip?.title, route, routeStops, savedStops]);
+
+        useEffect(() => {
+          const handler = () => {
+            setActiveTab('map');
+            prepareOffline();
+          };
+          window.addEventListener('tripify:offline-prep-request', handler);
+          return () => window.removeEventListener('tripify:offline-prep-request', handler);
+        }, [prepareOffline]);
+        await Promise.all(urls.map(url =>
+          fetch(url, { mode: 'no-cors' })
+            .then(res => cache.put(url, res))
+            .catch(() => null)
+        ));
+      }
+      setOfflineStatus('Offline route + pins saved.');
+    } catch {
+      setOfflineStatus('Offline prep partially completed.');
+    } finally {
+      setOfflinePreparing(false);
+    }
+  }
+
+  const openWhatsAroundInAi = useCallback((stop) => {
+    setSelectedStop(null);
+    setActiveTab('ai');
+    setAiPromptRequest({
+      id: Date.now(),
+      text: `What are places to visit and things to do around ${stop.name}${stop.address ? ` near ${stop.address}` : ''}?`,
+    });
+  }, []);
 
   if (loading) return <div className="workspace-loading"><div className="spinner" /></div>;
   if (error) return (
@@ -324,8 +400,8 @@ export default function TripWorkspace() {
         <div className="ws-map-layer">
           <TripMap
             ref={mapRef}
-            stops={stopTypeFilter ? stops.filter(s => s.pinType === stopTypeFilter) : stops}
-            route={route}
+            stops={filteredMapStops}
+            route={stopTypeFilter === '__saved__' ? null : route}
             userLocation={userLocation}
             onStopSelect={stop => handleOpenStop(stop)}
             onLongPress={handleLongPress}
@@ -333,6 +409,7 @@ export default function TripWorkspace() {
             searchPins={mapSearchResults}
             onSearchPinSelect={pin => setSelectedSearchPin(pin)}
             searchSelectedId={selectedSearchPin?.id}
+            mapLayer={mapLayer}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -357,6 +434,13 @@ export default function TripWorkspace() {
               </button>
             )}
             <button
+              className={`map-ctrl-btn${showMapLayers ? ' map-ctrl-active' : ''}`}
+              title="Map layers"
+              onClick={() => setShowMapLayers(prev => !prev)}
+            >
+              <span className="map-ctrl-icon">🛰️</span>
+            </button>
+            <button
               className={`map-ctrl-btn map-ctrl-search${mapSearchMode ? ' map-ctrl-active' : ''}`}
               title={mapSearchMode ? 'Exit search' : 'Search this area'}
               onClick={mapSearchMode ? exitMapSearch : handleSearchArea}
@@ -366,7 +450,26 @@ export default function TripWorkspace() {
             <button className="map-ctrl-btn map-ctrl-trails" title="Find trails on AllTrails" onClick={handleFindTrails}>
               <span className="map-ctrl-icon">🥾</span>
             </button>
+            <button className="map-ctrl-btn" title="Prepare offline maps" onClick={prepareOffline} disabled={offlinePreparing}>
+              <span className="map-ctrl-icon">{offlinePreparing ? '…' : '⬇️'}</span>
+            </button>
           </div>
+          {showMapLayers && (
+            <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
+              {[['normal', '🗺️ Normal'], ['satellite', '🛰️ Satellite'], ['trails', '🥾 Trails']].map(([key, label]) => (
+                <button
+                  key={key}
+                  className={`map-filter-menu-btn${mapLayer === key ? ' active' : ''}`}
+                  onClick={() => {
+                    setMapLayer(key);
+                    setShowMapLayers(false);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           {showMapFilters && availableStopTypes.length > 1 && (
             <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom }}>
               <button
@@ -379,7 +482,7 @@ export default function TripWorkspace() {
                 All stops
               </button>
               {availableStopTypes.map(type => {
-                const typeMeta = PIN_TYPES[type] || PIN_TYPES.GENERAL;
+                const typeMeta = type === '__saved__' ? { emoji: '🔖', label: 'Saved for later' } : (PIN_TYPES[type] || PIN_TYPES.GENERAL);
                 return (
                   <button
                     key={type}
@@ -440,8 +543,15 @@ export default function TripWorkspace() {
               >
                 + Add to Route
               </button>
+              <button
+                className="btn-secondary ws-spc-add"
+                onClick={() => handleAddSearchPin({ ...selectedSearchPin, saveForLater: true })}
+              >
+                🔖 Save for later
+              </button>
             </div>
           )}
+          {offlineStatus && <div className="ws-offline-status">{offlineStatus}</div>}
 
           {/* ── Next stop strip (map tab only) ── */}
           {activeTab === 'map' && nextStop && (
@@ -490,7 +600,7 @@ export default function TripWorkspace() {
                     await tripData.markReached(nextStop.id);
                     setPhotoPromptStop(nextStop);
                   }}>
-                  ✓ Reached
+                  ✓ Arrived
                 </button>
               </div>
             </div>
@@ -506,7 +616,7 @@ export default function TripWorkspace() {
                 route={route}
                 units={units}
                 onSelect={stop => handleOpenStop(stop)}
-                onReorder={tripData.reorderStops}
+                onReorder={handleReorderRouteStops}
                 onReached={handleMarkReached}
                 onDelete={tripData.deleteStop}
                 onAdd={() => setShowSearch(true)}
@@ -568,7 +678,7 @@ export default function TripWorkspace() {
               />
             )}
             {activeTab === 'ai' && (
-              <AiView tripId={id} tripName={trip?.title} stops={stops} route={route} units={units} />
+              <AiView tripId={id} tripName={trip?.title} stops={stops} route={route} units={units} autoPromptRequest={aiPromptRequest} onAutoPromptDone={() => setAiPromptRequest(null)} />
             )}
             {activeTab === 'more' && (
               <MoreView
@@ -626,6 +736,7 @@ export default function TripWorkspace() {
             setSelectedStop(prev => ({ ...prev, ...updates }));
           }}
           onOpenNearbySearch={() => handleOpenStop(selectedStop, { searchNearby: true })}
+          onAskWhatsAround={() => openWhatsAroundInAi(selectedStop)}
           onReach={() => {
             const wasReached = selectedStop.reached;
             tripData.markReached(selectedStop.id, !wasReached);
@@ -741,4 +852,12 @@ function compressImage(file, maxDim, quality) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function latLngToTile(lat, lng, zoom) {
+  const x = Math.floor(((lng + 180) / 360) * (2 ** zoom));
+  const y = Math.floor(
+    (1 - Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) / Math.PI) / 2 * (2 ** zoom)
+  );
+  return { x, y };
 }

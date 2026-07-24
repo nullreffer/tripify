@@ -6,10 +6,10 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { PIN_TYPES, PIN_TYPE_LIST } from '../../constants/pinTypes.js';
+import { PIN_TYPES } from '../../constants/pinTypes.js';
 import { formatDistance, formatDuration } from '../../services/routing.js';
 
-function StopRow({ stop, index, nextStop, route, onSelect, onReached, onDelete, isReachedLocked }) {
+function StopRow({ stop, index, nextStop, route, onSelect, onReached, onDelete, isReachedLocked, hideArrive }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: stop.id,
     disabled: isReachedLocked, // disable drag for reached stops
@@ -22,7 +22,7 @@ function StopRow({ stop, index, nextStop, route, onSelect, onReached, onDelete, 
   return (
     <div ref={setNodeRef} style={style} className={`stop-row${stop.reached ? ' stop-row-done' : ''}${isNext ? ' stop-row-next' : ''}`}>
       <div className={`stop-row-drag${isReachedLocked ? ' stop-row-drag-locked' : ''}`} {...(isReachedLocked ? {} : { ...attributes, ...listeners })}>⋮⋮</div>
-      <div className="stop-row-num">{stop.reached ? '✓' : index + 1}</div>
+      <div className="stop-row-num">{stop.reached ? '✓' : (index != null ? index + 1 : '🔖')}</div>
       <div className="stop-row-body" onClick={() => onSelect(stop)}>
         <div className="stop-row-top">
           <span className="stop-row-emoji">{pt.emoji}</span>
@@ -41,13 +41,15 @@ function StopRow({ stop, index, nextStop, route, onSelect, onReached, onDelete, 
         )}
       </div>
       <div className="stop-row-actions">
-        <button
-          className={`stop-reach-btn${stop.reached ? ' reached' : ''}`}
-          onClick={e => { e.stopPropagation(); onReached(stop.id, !stop.reached); }}
-          title={stop.reached ? 'Mark unreached' : 'Mark reached'}
-        >
-          {stop.reached ? '↩' : '✓'}
-        </button>
+        {!hideArrive && (
+          <button
+            className={`stop-reach-btn${stop.reached ? ' reached' : ''}`}
+            onClick={e => { e.stopPropagation(); onReached(stop.id, !stop.reached); }}
+            title={stop.reached ? 'Mark unarrived' : 'Mark arrived'}
+          >
+            {stop.reached ? '↩' : '✓'}
+          </button>
+        )}
         <button
           className="stop-del-btn"
           onClick={e => { e.stopPropagation(); if (confirm(`Remove "${stop.name}"?`)) onDelete(stop.id); }}
@@ -62,14 +64,20 @@ function StopRow({ stop, index, nextStop, route, onSelect, onReached, onDelete, 
 
 export default function StopList({ stops, route, onSelect, onReorder, onReached, onDelete, onAdd, filterType, onFilterChange }) {
   const [activeId, setActiveId] = useState(null);
-  const nextStop = stops.find(s => !s.reached);
+  const routeStops = stops.filter(s => !s?.metadata?.savedForLater);
+  const savedStops = stops.filter(s => s?.metadata?.savedForLater);
+  const nextStop = routeStops.find(s => !s.reached);
 
   // Index of the last reached stop — nothing can be dragged into or before this zone
-  const lastReachedIdx = stops.reduce((acc, s, i) => s.reached ? i : acc, -1);
+  const lastReachedIdx = routeStops.reduce((acc, s, i) => s.reached ? i : acc, -1);
 
   // Which pin types actually appear in this trip (for filter pills)
-  const presentTypes = [...new Set(stops.map(s => s.pinType).filter(Boolean))];
-  const filteredStops = filterType ? stops.filter(s => s.pinType === filterType) : stops;
+  const presentTypes = [...new Set(stops.map(s => s?.metadata?.savedForLater ? '__saved__' : s.pinType).filter(Boolean))];
+  const filteredStops = filterType
+    ? (filterType === '__saved__'
+      ? savedStops
+      : routeStops.filter(s => s.pinType === filterType))
+    : routeStops;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -77,22 +85,23 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
   );
 
   function handleDragEnd(event) {
+    if (filterType === '__saved__') return;
     const { active, over } = event;
     setActiveId(null);
     if (!over || active.id === over.id) return;
-    const oldIdx = stops.findIndex(s => s.id === active.id);
-    const newIdx = stops.findIndex(s => s.id === over.id);
+    const oldIdx = routeStops.findIndex(s => s.id === active.id);
+    const newIdx = routeStops.findIndex(s => s.id === over.id);
     // Prevent moving a reached stop
-    if (stops[oldIdx]?.reached) return;
+    if (routeStops[oldIdx]?.reached) return;
     // Prevent moving any stop into / before the reached zone
     if (newIdx <= lastReachedIdx) return;
-    onReorder(arrayMove(stops, oldIdx, newIdx));
+    onReorder(arrayMove(routeStops, oldIdx, newIdx));
   }
 
   return (
     <div className="stop-list">
       <div className="stop-list-header">
-        <h2>Stops <span className="stop-count">{stops.filter(s => s.reached).length}/{stops.length}</span></h2>
+        <h2>Stops <span className="stop-count">{routeStops.filter(s => s.reached).length}/{routeStops.length}</span></h2>
         <button className="btn-primary btn-sm" onClick={onAdd}>+ Add Stop</button>
       </div>
 
@@ -104,7 +113,7 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
             onClick={() => onFilterChange?.(null)}
           >All</button>
           {presentTypes.map(type => {
-            const pt = PIN_TYPES[type] || PIN_TYPES.GENERAL;
+            const pt = type === '__saved__' ? { emoji: '🔖', label: 'Saved for later' } : (PIN_TYPES[type] || PIN_TYPES.GENERAL);
             return (
               <button
                 key={type}
@@ -118,7 +127,7 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
         </div>
       )}
 
-      {stops.length === 0 ? (
+      {routeStops.length === 0 && savedStops.length === 0 ? (
         <div className="stop-list-empty">
           <span>No stops yet</span>
           <button className="btn-primary" onClick={onAdd}>Add your first stop</button>
@@ -144,13 +153,14 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
                   <StopRow
                     key={stop.id}
                     stop={stop}
-                    index={realIdx}
+                    index={filterType === '__saved__' ? null : realIdx}
                     nextStop={nextStop}
                     route={route}
                     onSelect={onSelect}
                     onReached={onReached}
                     onDelete={onDelete}
-                    isReachedLocked={stop.reached}
+                    isReachedLocked={stop.reached || !!stop?.metadata?.savedForLater}
+                    hideArrive={filterType === '__saved__' || !!stop?.metadata?.savedForLater}
                   />
                 );
               })}
@@ -159,11 +169,32 @@ export default function StopList({ stops, route, onSelect, onReorder, onReached,
           <DragOverlay>
             {activeId ? (
               <div className="stop-row stop-row-dragging">
-                {stops.find(s => s.id === activeId)?.name}
+                {routeStops.find(s => s.id === activeId)?.name}
               </div>
             ) : null}
           </DragOverlay>
         </DndContext>
+      )}
+      {!filterType && savedStops.length > 0 && (
+        <div className="saved-stops-section">
+          <h3>Saved for later</h3>
+          <div className="stop-rows">
+            {savedStops.map(stop => (
+              <StopRow
+                key={stop.id}
+                stop={stop}
+                index={null}
+                nextStop={null}
+                route={null}
+                onSelect={onSelect}
+                onReached={onReached}
+                onDelete={onDelete}
+                isReachedLocked
+                hideArrive
+              />
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

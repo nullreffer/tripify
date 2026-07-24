@@ -25,7 +25,7 @@ function buildTripContext(trip, stops, categories, days, reservations) {
     `Stops (${stops.length} total):`,
     ...stops.map((s, i) => {
       const parts = [
-        `${i + 1}. ${s.name} [${s.pinType}]${s.reached ? ' ✓ Reached' : ''}`,
+        `${i + 1}. ${s.name} [${s.pinType}]${s.reached ? ' ✓ Arrived' : ''}`,
         s.address ? `   Address: ${s.address}` : null,
         s.targetDate ? `   Target: ${new Date(s.targetDate).toLocaleString()}` : null,
         s.notes ? `   Notes: ${s.notes}` : null,
@@ -140,9 +140,10 @@ You have access to the following trip information:
 
 ${tripContext}
 
-Answer questions about this trip only. Be concise and helpful. 
-If information is missing from the trip data, say so rather than guessing.
-Do not make up stops, dates, or reservations that aren't in the data.`;
+Use trip data when answering trip-specific questions.
+You may also answer broader travel questions (e.g., suggestions near a route) using general knowledge, but clearly label those as general suggestions not sourced from this itinerary.
+If specific itinerary information is missing, say so rather than inventing trip facts.
+Do not make up stops, dates, or reservations that aren't in the trip data.`;
 
       const result = await model.generateContent([systemPrompt, message.trim()]);
       reply = result.response.text();
@@ -151,7 +152,7 @@ Do not make up stops, dates, or reservations that aren't in the data.`;
       const nextStop = stops.find(s => !s.reached);
       const reached = stops.filter(s => s.reached).length;
       reply = `[AI assistant not yet configured — add your GEMINI_API_KEY to activate.]\n\n` +
-        `Based on your trip data: You have ${stops.length} stops, ${reached} reached. ` +
+        `Based on your trip data: You have ${stops.length} stops, ${reached} arrived. ` +
         (nextStop ? `Your next stop is "${nextStop.name}".` : 'All stops are completed!');
     }
 
