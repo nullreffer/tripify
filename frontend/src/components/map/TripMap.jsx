@@ -64,6 +64,28 @@ const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
     flyToLocation(lat, lng, zoom = 15) {
       map.flyTo([lat, lng], zoom, { animate: true, duration: 0.8 });
     },
+    ensureSearchResultVisible(pins = []) {
+      if (!pins.length) return;
+      const bounds = map.getBounds();
+      const anyVisible = pins.some(pin => bounds.contains([pin.lat, pin.lng]));
+      if (anyVisible) return;
+
+      const center = map.getCenter();
+      const nearest = pins.reduce((best, pin) => {
+        const distance = Math.hypot(center.lat - pin.lat, center.lng - pin.lng);
+        return distance < best.distance ? { pin, distance } : best;
+      }, { pin: pins[0], distance: Infinity }).pin;
+
+      const nextBounds = L.latLngBounds(
+        [center.lat, center.lng],
+        [nearest.lat, nearest.lng]
+      );
+      map.fitBounds(nextBounds, {
+        padding: [60, 60],
+        maxZoom: Math.min(map.getZoom(), 13),
+        animate: true,
+      });
+    },
     fitTrip() {
       if (stops.length === 0) return;
       if (stops.length === 1) {

@@ -198,6 +198,7 @@ export default function TripWorkspace() {
       } : null;
       const results = await searchNearby(val, leafletBounds);
       setMapSearchResults(results);
+      mapRef.current?.ensureSearchResultVisible(results);
       setMapSearching(false);
     }, 500);
   }, []);
