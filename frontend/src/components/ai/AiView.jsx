@@ -49,7 +49,8 @@ export default function AiView({ tripId, tripName }) {
         body: JSON.stringify({ message: msg }),
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply || data.error || 'Sorry, something went wrong.' }]);
+      const assistantReply = data?.reply || data?.message?.content || data?.error || 'Sorry, something went wrong.';
+      setMessages(prev => [...prev, { role: 'assistant', content: assistantReply }]);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Could not reach AI service. Check your connection.' }]);
     } finally {
