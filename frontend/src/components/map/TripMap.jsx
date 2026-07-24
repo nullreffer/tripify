@@ -72,10 +72,11 @@ const MapRefCapture = forwardRef(function MapRefCapture({ stops }, ref) {
 
       const center = map.getCenter();
       const firstPin = pins[0];
+      const firstPinDistance = map.distance(center, [firstPin.lat, firstPin.lng]);
       const nearest = pins.reduce((best, pin) => {
         const distance = map.distance(center, [pin.lat, pin.lng]);
         return distance < best.distance ? { pin, distance } : best;
-      }, { pin: firstPin, distance: map.distance(center, [firstPin.lat, firstPin.lng]) }).pin;
+      }, { pin: firstPin, distance: firstPinDistance }).pin;
 
       const nextBounds = L.latLngBounds(
         [center.lat, center.lng],
