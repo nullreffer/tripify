@@ -27,6 +27,8 @@ const TABS = [
 
 const MAP_CONTROLS_BOTTOM = '12px';
 const MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP = '160px';
+const ALLTRAILS_MIN_ZOOM = 2;
+const ALLTRAILS_MAX_ZOOM = 18;
 
 function resolveMapStyle(setting) {
   if (setting === 'light') return false;
@@ -259,7 +261,7 @@ export default function TripWorkspace() {
     const zoom = mapRef.current?.getZoom();
     if (center) {
       window.open(
-        `https://www.alltrails.com/explore?lat=${center.lat.toFixed(4)}&lng=${center.lng.toFixed(4)}${Number.isFinite(zoom) ? `&zoom=${Math.max(2, Math.min(18, Math.round(zoom)))}` : ''}`,
+        `https://www.alltrails.com/explore?lat=${center.lat.toFixed(4)}&lng=${center.lng.toFixed(4)}${Number.isFinite(zoom) ? `&zoom=${Math.max(ALLTRAILS_MIN_ZOOM, Math.min(ALLTRAILS_MAX_ZOOM, Math.round(zoom)))}` : ''}`,
         '_blank', 'noopener'
       );
     } else {
