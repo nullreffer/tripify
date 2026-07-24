@@ -163,6 +163,20 @@ export default function TripWorkspace() {
     mapRef.current?.fitTrip();
   }, []);
 
+  const handleOpenStop = useCallback((stop, { searchNearby = false } = {}) => {
+    setActiveTab('map');
+    mapRef.current?.flyToLocation(stop.lat, stop.lng, 15);
+    if (searchNearby) {
+      setSelectedStop(null);
+      setMapSearchMode(true);
+      setMapSearchResults([]);
+      setSelectedSearchPin(null);
+      setMapSearchQuery('');
+      return;
+    }
+    setSelectedStop(stop);
+  }, []);
+
   const handleSearchArea = useCallback(() => {
     setActiveTab('map');
     setMapSearchMode(true);
@@ -308,7 +322,7 @@ export default function TripWorkspace() {
             stops={stopTypeFilter ? stops.filter(s => s.pinType === stopTypeFilter) : stops}
             route={route}
             userLocation={userLocation}
-            onStopSelect={stop => { setSelectedStop(stop); setActiveTab('map'); }}
+            onStopSelect={stop => handleOpenStop(stop)}
             onLongPress={handleLongPress}
             darkMode={darkMode}
             searchPins={mapSearchResults}
@@ -486,7 +500,7 @@ export default function TripWorkspace() {
                 stops={stops}
                 route={route}
                 units={units}
-                onSelect={stop => { setSelectedStop(stop); setActiveTab('map'); }}
+                onSelect={stop => handleOpenStop(stop)}
                 onReorder={tripData.reorderStops}
                 onReached={handleMarkReached}
                 onDelete={tripData.deleteStop}
@@ -566,10 +580,7 @@ export default function TripWorkspace() {
                 onUpdateTrip={tripData.updateTrip}
                 onDeleteTrip={async () => { await tripData.deleteTrip(); navigate('/'); }}
                 onNavigate={tab => setActiveTab(tab)}
-                onOpenStop={(stop) => {
-                  setSelectedStop(stop);
-                  setActiveTab('map');
-                }}
+                onOpenStop={stop => handleOpenStop(stop)}
               />
             )}
           </div>
@@ -603,6 +614,7 @@ export default function TripWorkspace() {
             await tripData.updateStop(selectedStop.id, updates);
             setSelectedStop(prev => ({ ...prev, ...updates }));
           }}
+          onOpenNearbySearch={() => handleOpenStop(selectedStop, { searchNearby: true })}
           onReach={() => {
             const wasReached = selectedStop.reached;
             tripData.markReached(selectedStop.id, !wasReached);
