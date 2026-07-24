@@ -1,8 +1,9 @@
 const KEY = 'azitrip-settings';
 
 export const DEFAULTS = {
-  units: 'imperial',    // 'imperial' | 'metric'
-  mapStyle: 'auto',     // 'auto' | 'light' | 'dark'
+  units: 'imperial',      // 'imperial' | 'metric'
+  mapStyle: 'auto',       // 'auto' | 'light' | 'dark'
+  orientation: 'portrait', // 'portrait' | 'auto'
 };
 
 export function getSettings() {

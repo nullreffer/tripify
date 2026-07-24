@@ -31,8 +31,18 @@ function applyTheme(mapStyle) {
   document.documentElement.classList.toggle('dark', dark);
 }
 
+function applyOrientation(orientation) {
+  if (!screen?.orientation?.lock) return;
+  if (orientation === 'portrait') {
+    screen.orientation.lock('portrait').catch(() => {});
+  } else {
+    screen.orientation.unlock();
+  }
+}
+
 // Apply immediately (before first render) to avoid flash
 applyTheme(getSettings().mapStyle);
+applyOrientation(getSettings().orientation);
 
 export const AuthContext = createContext(null);
 
@@ -51,7 +61,10 @@ function App() {
 
   // Keep global dark class in sync with settings changes and system theme
   useEffect(() => {
-    const off = useSettingsListener(s => applyTheme(s.mapStyle));
+    const off = useSettingsListener(s => {
+      applyTheme(s.mapStyle);
+      applyOrientation(s.orientation);
+    });
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const mqHandler = () => applyTheme(getSettings().mapStyle);
     mq.addEventListener('change', mqHandler);

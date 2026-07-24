@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { PIN_TYPES, PIN_TYPE_LIST } from '../../constants/pinTypes.js';
 import { formatDistance, formatDuration } from '../../services/routing.js';
 
@@ -44,7 +44,30 @@ const RESERVATION_PROVIDERS = [
 // Approximate kilometers per degree of latitude/longitude at mid-latitudes
 const KM_PER_DEGREE = 111;
 
-export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch, onAskWhatsAround, onReach, onDelete, canEdit }) {
+// Compress an image File to base64 JPEG
+function compressImage(file, maxDim = 1200, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch, onAskWhatsAround, onReach, onDelete, onAddToRoute, canEdit }) {
   const [tab, setTab] = useState('info');
   const [name, setName] = useState(stop.name);
   const [pinType, setPinType] = useState(stop.pinType);
@@ -55,6 +78,15 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
   const [metadata, setMetadata] = useState(stop.metadata || {});
   const [showReservationMenu, setShowReservationMenu] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoFileRef = useRef(null);
+
+  // Derive photos array: support both metadata.photos (array) and legacy metadata.photo (string)
+  const getPhotos = (meta) => {
+    if (Array.isArray(meta?.photos)) return meta.photos;
+    if (meta?.photo) return [meta.photo];
+    return [];
+  };
 
   const isSaved = !!stop?.metadata?.savedForLater;
   const pt = PIN_TYPES[stop.pinType] || PIN_TYPES.GENERAL;
@@ -78,6 +110,34 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
     await onUpdate({ name, pinType, notes, targetDate: targetDate || null, metadata });
     setSaving(false);
     setTab('info');
+  };
+
+  const handleAddPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const compressed = await compressImage(file);
+      const currentPhotos = getPhotos(metadata);
+      const newPhotos = [...currentPhotos, compressed];
+      // Keep metadata.photo as the first photo for backward compat
+      setMetadata(prev => ({ ...prev, photos: newPhotos, photo: newPhotos[0] }));
+    } catch (err) {
+      console.error('Photo compression failed:', err);
+    } finally {
+      setUploadingPhoto(false);
+      if (photoFileRef.current) photoFileRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = (idx) => {
+    const currentPhotos = getPhotos(metadata);
+    const newPhotos = currentPhotos.filter((_, i) => i !== idx);
+    setMetadata(prev => ({
+      ...prev,
+      photos: newPhotos,
+      photo: newPhotos[0] || null,
+    }));
   };
 
   const handleDirections = (fromCurrentLocation) => {
@@ -142,12 +202,17 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
           {/* ── Info tab ── */}
           {tab === 'info' && (
             <>
-              {metadata?.photo && (
-                <img
-                  src={metadata.photo}
-                  alt={`${stop.name} stop`}
-                  className="sheet-photo"
-                />
+              {getPhotos(metadata).length > 0 && (
+                <div className="sheet-photos-row">
+                  {getPhotos(metadata).map((photo, i) => (
+                    <img
+                      key={i}
+                      src={photo}
+                      alt={`${stop.name} photo ${i + 1}`}
+                      className="sheet-photo-thumb"
+                    />
+                  ))}
+                </div>
               )}
               {stop.address && <p className="sheet-address">{stop.address}</p>}
               {stop.targetDate && (
@@ -211,7 +276,12 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                     🏨 Open reservation
                   </button>
                 )}
-                {canEdit && (
+                {canEdit && onAddToRoute && isSaved && (
+                  <button className="sheet-action-btn btn-green" onClick={() => { onClose(); onAddToRoute(stop); }}>
+                    🗺 Add to Route
+                  </button>
+                 )}
+                 {canEdit && (
                   <button
                     className={`sheet-action-btn${stop.reached ? ' btn-green' : ' btn-orange'}`}
                     onClick={onReach}
@@ -266,6 +336,34 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                   />
                 </div>
               ))}
+
+              <div className="meta-section-label">Photos</div>
+              <div className="sheet-photos-edit">
+                {getPhotos(metadata).map((photo, i) => (
+                  <div key={i} className="sheet-photo-edit-item">
+                    <img src={photo} alt={`Photo ${i + 1}`} className="sheet-photo-edit-thumb" />
+                    <button
+                      className="sheet-photo-remove-btn"
+                      onClick={() => handleRemovePhoto(i)}
+                      title="Remove photo"
+                    >×</button>
+                  </div>
+                ))}
+                <button
+                  className="sheet-photo-add-btn"
+                  onClick={() => photoFileRef.current?.click()}
+                  disabled={uploadingPhoto}
+                >
+                  {uploadingPhoto ? '⏳' : '📷 Add Photo'}
+                </button>
+                <input
+                  ref={photoFileRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleAddPhoto}
+                />
+              </div>
 
               <div className="sheet-edit-actions">
                 <button className="btn-secondary" onClick={() => setTab('info')}>Cancel</button>
