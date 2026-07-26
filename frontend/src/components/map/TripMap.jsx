@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, useMap, useMapEvents } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import { PIN_TYPES } from '../../constants/pinTypes.js';
+import { getLocationGroupKey } from '../../constants/map.js';
 
 // Fix Leaflet default icon paths (broken in Vite builds)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -12,7 +13,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-function makeStopIcon(stop, index, isNext) {
+function makeStopIcon(stop, index, isNext, groupCount = 1) {
   const pt = PIN_TYPES[stop.pinType] || PIN_TYPES.GENERAL;
   const isSavedForLater = !!stop?.metadata?.savedForLater;
   const color = isSavedForLater
@@ -32,6 +33,14 @@ function makeStopIcon(stop, index, isNext) {
         font-size:10px;font-weight:700;line-height:1.4;
         border:1.5px solid #fff;
       ">${index + 1}</div>`;
+  const groupBadge = groupCount > 1 ? `
+      <div style="
+        position:absolute;bottom:-8px;left:-8px;
+        background:#0f172a;color:#fff;
+        border-radius:99px;padding:1px 5px;
+        font-size:10px;font-weight:700;line-height:1.4;
+        border:1.5px solid #fff;
+      ">×${groupCount}</div>` : '';
   const html = `
     <div style="
       width:36px;height:36px;border-radius:50%;
@@ -42,6 +51,7 @@ function makeStopIcon(stop, index, isNext) {
     ">
       ${isSavedForLater ? '🔖' : stop.reached ? '✓' : pt.emoji}
       ${numberBadge}
+      ${groupBadge}
     </div>`;
   return L.divIcon({ html, className: '', iconSize: [36, 36], iconAnchor: [18, 36], popupAnchor: [0, -38] });
 }
@@ -64,6 +74,17 @@ function makeSearchIcon(isSelected) {
     font-size:13px;cursor:pointer;
   ">🔍</div>`;
   return L.divIcon({ html, className: '', iconSize: [30, 30], iconAnchor: [15, 30], popupAnchor: [0, -32] });
+}
+
+function makeWeatherIcon(emoji, tempLabel) {
+  const html = `<div style="
+    min-width:34px;height:34px;border-radius:17px;
+    background:rgba(15,23,42,.9);color:#fff;
+    border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;padding:0 8px;gap:4px;
+  "><span>${emoji}</span><span style="font-size:11px;font-weight:700;">${tempLabel || ''}</span></div>`;
+  return L.divIcon({ html, className: '', iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -32] });
 }
 
 // Exposes imperative map control methods to parent via ref
@@ -168,13 +189,22 @@ function LongPressHandler({ onLongPress }) {
   return null;
 }
 
-function RouteLayer({ stops, route }) {
+function MapTapHandler({ onMapTap }) {
+  useMapEvents({
+    click(e) {
+      const target = e.originalEvent?.target;
+      const clickedMarker = target?.closest?.('.leaflet-marker-icon, .leaflet-marker-shadow');
+      if (clickedMarker) return;
+      onMapTap?.(e.latlng);
+    },
+  });
+  return null;
+}
+
+function RouteLayer({ route, completedFraction = 0 }) {
   if (!route?.geometry) return null;
   const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-  const lastReachedIdx = stops.reduce((acc, s, i) => s.reached ? i : acc, -1);
-  const splitAt = lastReachedIdx >= 0
-    ? Math.floor(coords.length * (lastReachedIdx + 1) / stops.length)
-    : 0;
+  const splitAt = Math.floor(coords.length * Math.max(0, Math.min(1, completedFraction)));
   return (
     <>
       <Polyline positions={coords} color="#f97316" weight={5} opacity={0.8} />
@@ -187,10 +217,26 @@ function RouteLayer({ stops, route }) {
 
 const TripMap = forwardRef(function TripMap(
   { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode,
-    searchPins = [], onSearchPinSelect, searchSelectedId, mapLayer = 'normal' },
+    searchPins = [], onSearchPinSelect, searchSelectedId, mapLayer = 'normal',
+    weatherPins = [], completedFraction = 0, onMapTap },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
+  const groupedStops = useMemo(() => {
+    const groups = new Map();
+    stops.forEach((stop, idx) => {
+      const key = getLocationGroupKey(stop.lat, stop.lng);
+      if (!groups.has(key)) groups.set(key, { stops: [], indices: [] });
+      groups.get(key).stops.push(stop);
+      groups.get(key).indices.push(idx);
+    });
+    return [...groups.values()].map(group => {
+      const representative = group.stops.find(s => !s.reached) || group.stops[0];
+      const representativeIdx = group.indices[group.stops.indexOf(representative)] ?? group.indices[0] ?? 0;
+      const isNext = group.stops.some(s => s.id === nextStop?.id);
+      return { representative, representativeIdx, isNext, count: group.stops.length };
+    });
+  }, [stops, nextStop?.id]);
   const tileLayerByMode = {
     normal: darkMode
       ? {
@@ -233,9 +279,10 @@ const TripMap = forwardRef(function TripMap(
         {layer.labelOverlay && (
           <TileLayer url={layer.labelOverlay.url} attribution={layer.labelOverlay.attribution} />
         )}
-        <RouteLayer stops={stops} route={route} />
+        <RouteLayer route={route} completedFraction={completedFraction} />
         <MapInitialFit stops={stops} userLocation={userLocation} />
         <LongPressHandler onLongPress={onLongPress} />
+        <MapTapHandler onMapTap={onMapTap} />
         <MapRefCapture ref={mapRef} stops={stops} />
 
         {userLocation && (
@@ -262,12 +309,12 @@ const TripMap = forwardRef(function TripMap(
             });
           }}
         >
-          {stops.map((stop, idx) => (
+          {groupedStops.map(({ representative, representativeIdx, isNext, count }) => (
             <Marker
-              key={stop.id}
-              position={[stop.lat, stop.lng]}
-              icon={makeStopIcon(stop, idx, stop.id === nextStop?.id)}
-              eventHandlers={{ click: () => onStopSelect(stop) }}
+              key={representative.id}
+              position={[representative.lat, representative.lng]}
+              icon={makeStopIcon(representative, representativeIdx, isNext, count)}
+              eventHandlers={{ click: () => onStopSelect(representative) }}
             />
           ))}
         </MarkerClusterGroup>
@@ -279,6 +326,14 @@ const TripMap = forwardRef(function TripMap(
             position={[pin.lat, pin.lng]}
             icon={makeSearchIcon(pin.id === searchSelectedId)}
             eventHandlers={{ click: () => onSearchPinSelect?.(pin) }}
+          />
+        ))}
+
+        {weatherPins.map(pin => (
+          <Marker
+            key={`weather-${pin.id}`}
+            position={[pin.lat, pin.lng]}
+            icon={makeWeatherIcon(pin.emoji, pin.tempLabel)}
           />
         ))}
       </MapContainer>

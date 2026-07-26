@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { PIN_TYPES, PIN_TYPE_LIST } from '../../constants/pinTypes.js';
+import { getLocationGroupKey } from '../../constants/map.js';
 import { formatDistance, formatDuration } from '../../services/routing.js';
 
 const TYPE_METADATA = {
@@ -90,6 +91,17 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
 
   const isSaved = !!stop?.metadata?.savedForLater;
   const pt = PIN_TYPES[stop.pinType] || PIN_TYPES.GENERAL;
+  const stopLocationKey = getLocationGroupKey(stop.lat, stop.lng);
+  const sameLocationStops = useMemo(() => (
+    stops.filter(s =>
+      s.id !== stop.id &&
+      getLocationGroupKey(s.lat, s.lng) === stopLocationKey
+    )
+  ), [stops, stop.id, stopLocationKey]);
+  const notesAtLocation = useMemo(
+    () => [stop, ...sameLocationStops].filter(s => (s.notes || '').trim().length > 0),
+    [stop, sameLocationStops]
+  );
 
   // For route stops: use the stop's index in the route stops list for leg lookup
   const routeStops = stops.filter(s => !s?.metadata?.savedForLater);
@@ -231,7 +243,23 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                   {' '}                  ({(Math.hypot(nearestRouteStop.lat - stop.lat, nearestRouteStop.lng - stop.lng) * KM_PER_DEGREE).toFixed(0)} km away)
                 </div>
               )}
-              {stop.notes && <div className="sheet-notes">{stop.notes}</div>}
+              {stop.notes && sameLocationStops.length === 0 && <div className="sheet-notes">{stop.notes}</div>}
+              {sameLocationStops.length > 0 && (
+                <div className="sheet-detail-row" style={{ display: 'block' }}>
+                  <strong>Notes at this location</strong>
+                  {notesAtLocation.length > 0 ? (
+                    <div style={{ marginTop: '8px', display: 'grid', gap: '8px' }}>
+                      {notesAtLocation.map(s => (
+                        <div key={s.id} className="sheet-notes" style={{ margin: 0 }}>
+                          <strong>{s.name}:</strong> {s.notes}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: '6px' }}>No notes yet for these stops.</div>
+                  )}
+                </div>
+              )}
               {isStayType && (metadata?.checkIn || metadata?.checkOut) && (
                 <div className="sheet-detail-row">
                   🕒
