@@ -90,6 +90,12 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
 
   const isSaved = !!stop?.metadata?.savedForLater;
   const pt = PIN_TYPES[stop.pinType] || PIN_TYPES.GENERAL;
+  const sameLocationStops = stops.filter(s =>
+    s.id !== stop.id &&
+    Math.abs(Number(s.lat) - Number(stop.lat)) < 0.00001 &&
+    Math.abs(Number(s.lng) - Number(stop.lng)) < 0.00001
+  );
+  const notesAtLocation = [stop, ...sameLocationStops].filter(s => (s.notes || '').trim().length > 0);
 
   // For route stops: use the stop's index in the route stops list for leg lookup
   const routeStops = stops.filter(s => !s?.metadata?.savedForLater);
@@ -232,6 +238,22 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                 </div>
               )}
               {stop.notes && <div className="sheet-notes">{stop.notes}</div>}
+              {sameLocationStops.length > 0 && (
+                <div className="sheet-detail-row" style={{ display: 'block' }}>
+                  <strong>Notes at this location</strong>
+                  {notesAtLocation.length > 0 ? (
+                    <div style={{ marginTop: '8px', display: 'grid', gap: '8px' }}>
+                      {notesAtLocation.map(s => (
+                        <div key={s.id} className="sheet-notes" style={{ margin: 0 }}>
+                          <strong>{s.name}:</strong> {s.notes}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: '6px' }}>No notes yet for these stops.</div>
+                  )}
+                </div>
+              )}
               {isStayType && (metadata?.checkIn || metadata?.checkOut) && (
                 <div className="sheet-detail-row">
                   🕒

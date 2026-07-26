@@ -32,12 +32,11 @@ function applyTheme(mapStyle) {
 }
 
 function applyOrientation(orientation) {
-  if (!screen?.orientation?.lock) return;
   if (orientation === 'portrait') {
-    screen.orientation.lock('portrait').catch(() => {});
-  } else {
-    screen.orientation.unlock();
+    screen?.orientation?.lock?.('portrait').catch(() => {});
+    return;
   }
+  screen?.orientation?.unlock?.();
 }
 
 // Apply immediately (before first render) to avoid flash
@@ -67,8 +66,21 @@ function App() {
     });
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const mqHandler = () => applyTheme(getSettings().mapStyle);
+    const orientationHandler = () => {
+      if (getSettings().orientation !== 'portrait') return;
+      applyOrientation('portrait');
+    };
     mq.addEventListener('change', mqHandler);
-    return () => { off(); mq.removeEventListener('change', mqHandler); };
+    window.addEventListener('orientationchange', orientationHandler);
+    window.addEventListener('resize', orientationHandler);
+    screen?.orientation?.addEventListener?.('change', orientationHandler);
+    return () => {
+      off();
+      mq.removeEventListener('change', mqHandler);
+      window.removeEventListener('orientationchange', orientationHandler);
+      window.removeEventListener('resize', orientationHandler);
+      screen?.orientation?.removeEventListener?.('change', orientationHandler);
+    };
   }, []);
 
   useEffect(() => {

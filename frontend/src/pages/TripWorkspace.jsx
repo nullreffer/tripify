@@ -4,6 +4,7 @@ import { useTrip } from '../hooks/useTrip.js';
 import { getRoute, formatDistance, formatDuration } from '../services/routing.js';
 import { getSettings, useSettingsListener } from '../services/settings.js';
 import { searchNearby } from '../services/geocoding.js';
+import { getWeather, buildCurrentWeather, buildScheduledDayWeather } from '../services/weather.js';
 import TripMap from '../components/map/TripMap.jsx';
 import StopList from '../components/stops/StopList.jsx';
 import StopSheet from '../components/stops/StopSheet.jsx';
@@ -67,6 +68,9 @@ export default function TripWorkspace() {
   const [showMapFilters, setShowMapFilters] = useState(false);
   const [showMapLayers, setShowMapLayers] = useState(false);
   const [mapLayer, setMapLayer] = useState('normal');
+  const [weatherByStopId, setWeatherByStopId] = useState({});
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [mapWeatherModal, setMapWeatherModal] = useState(null);
   const [offlinePreparing, setOfflinePreparing] = useState(false);
   const [offlineStatus, setOfflineStatus] = useState('');
   const [aiPromptRequest, setAiPromptRequest] = useState(null);
@@ -156,9 +160,34 @@ export default function TripWorkspace() {
   const completedDist = route?.legs
     ? route.legs.slice(0, Math.max(0, lastReachedIdx)).reduce((s, l) => s + (l.distance || 0), 0)
     : 0;
+  const completedFraction = route?.distance > 0 ? completedDist / route.distance : 0;
   const remainingDist = route ? (route.distance || 0) - completedDist : 0;
   const units = settings.units;
   const availableStopTypes = [...new Set(stops.map(s => s?.metadata?.savedForLater ? '__saved__' : s.pinType).filter(Boolean))];
+
+  useEffect(() => {
+    let cancelled = false;
+    if (routeStops.length === 0) {
+      setWeatherByStopId({});
+      return;
+    }
+    (async () => {
+      setWeatherLoading(true);
+      const entries = await Promise.all(routeStops.map(async (stop) => {
+        if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return [stop.id, null];
+        try {
+          const weather = await getWeather(stop.lat, stop.lng);
+          return [stop.id, weather];
+        } catch {
+          return [stop.id, null];
+        }
+      }));
+      if (cancelled) return;
+      setWeatherByStopId(Object.fromEntries(entries.filter(([, data]) => !!data)));
+      setWeatherLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [routeStops]);
 
   // ── Map overlay handlers ─────────────────────────────────────────────
   const handleMyLocation = useCallback(() => {
@@ -356,6 +385,69 @@ export default function TripWorkspace() {
       : routeStops.filter(s => s.pinType === stopTypeFilter))
     : stops;
 
+  const formatWeatherTemp = useCallback((celsius) => {
+    if (!Number.isFinite(celsius)) return '';
+    if (units === 'metric') return `${Math.round(celsius)}°`;
+    return `${Math.round((celsius * 9) / 5 + 32)}°`;
+  }, [units]);
+  const formatWindSpeed = useCallback((kmh) => {
+    if (!Number.isFinite(kmh)) return '';
+    if (units === 'metric') return `${Math.round(kmh)} km/h`;
+    return `${Math.round(kmh * 0.621371)} mph`;
+  }, [units]);
+
+  const weatherPins = useMemo(() => {
+    if (!['weather-current', 'weather-scheduled'].includes(mapLayer)) return [];
+    return routeStops.map((stop, idx) => {
+      const weather = weatherByStopId[stop.id];
+      if (!weather) return null;
+      if (mapLayer === 'weather-current') {
+        const current = buildCurrentWeather(weather);
+        if (!current) return null;
+        return {
+          id: `current-${stop.id}`,
+          lat: stop.lat,
+          lng: stop.lng,
+          emoji: current.emoji,
+          tempLabel: formatWeatherTemp(current.temperature),
+        };
+      }
+      const fallbackDate = new Date();
+      fallbackDate.setDate(fallbackDate.getDate() + idx);
+      const scheduled = buildScheduledDayWeather(weather, stop.targetDate || fallbackDate.toISOString());
+      if (!scheduled) return null;
+      return {
+        id: `scheduled-${stop.id}`,
+        lat: stop.lat,
+        lng: stop.lng,
+        emoji: scheduled.emoji,
+        tempLabel: formatWeatherTemp(scheduled.maxTemp),
+      };
+    }).filter(Boolean);
+  }, [mapLayer, routeStops, weatherByStopId, formatWeatherTemp]);
+
+  const handleMapTapWeather = useCallback(async (latlng) => {
+    if (!latlng) return;
+    setMapWeatherModal({ loading: true, lat: latlng.lat, lng: latlng.lng });
+    try {
+      const weather = await getWeather(latlng.lat, latlng.lng);
+      const current = buildCurrentWeather(weather);
+      setMapWeatherModal({
+        loading: false,
+        lat: latlng.lat,
+        lng: latlng.lng,
+        weather: current,
+      });
+    } catch {
+      setMapWeatherModal({
+        loading: false,
+        lat: latlng.lat,
+        lng: latlng.lng,
+        error: 'Weather unavailable for this area right now.',
+      });
+    }
+  }, []);
+
   const prepareOffline = useCallback(async () => {
     try {
       setOfflinePreparing(true);
@@ -474,14 +566,17 @@ export default function TripWorkspace() {
             ref={mapRef}
             stops={filteredMapStops}
             route={stopTypeFilter === '__saved__' ? null : route}
+            completedFraction={completedFraction}
             userLocation={userLocation}
             onStopSelect={stop => handleOpenStop(stop)}
             onLongPress={handleLongPress}
+            onMapTap={handleMapTapWeather}
             darkMode={darkMode}
             searchPins={mapSearchResults}
             onSearchPinSelect={pin => setSelectedSearchPin(pin)}
             searchSelectedId={selectedSearchPin?.id}
             mapLayer={mapLayer}
+            weatherPins={weatherPins}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -525,7 +620,7 @@ export default function TripWorkspace() {
           </div>
           {showMapLayers && (
             <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
-              {[['normal', '🗺️ Normal'], ['satellite', '🛰️ Satellite'], ['trails', '🥾 Trails']].map(([key, label]) => (
+              {[['normal', '🗺️ Normal'], ['satellite', '🛰️ Satellite'], ['trails', '🥾 Trails'], ['weather-current', '🌤️ Current weather'], ['weather-scheduled', '🗓️ Scheduled-day weather']].map(([key, label]) => (
                 <button
                   key={key}
                   className={`map-filter-menu-btn${mapLayer === key ? ' active' : ''}`}
@@ -619,6 +714,9 @@ export default function TripWorkspace() {
                 🔖 Save for later
               </button>
             </div>
+          )}
+          {weatherLoading && ['weather-current', 'weather-scheduled'].includes(mapLayer) && (
+            <div className="ws-offline-status">Loading weather along your route…</div>
           )}
           {offlineStatus && <div className="ws-offline-status">{offlineStatus}</div>}
 
@@ -919,6 +1017,37 @@ export default function TripWorkspace() {
               <button className="btn-ghost btn-sm" style={{ width: '100%', marginTop: '10px' }} onClick={() => setPhotoPromptStop(null)}>
                 Skip
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {mapWeatherModal && (
+        <div className="sheet-overlay" onClick={() => setMapWeatherModal(null)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-header">
+              <h3>🌦 Weather here</h3>
+              <button className="sheet-close" onClick={() => setMapWeatherModal(null)}>×</button>
+            </div>
+            <div className="sheet-body" style={{ paddingBottom: '24px' }}>
+              <p className="sheet-address">
+                {mapWeatherModal.lat.toFixed(4)}, {mapWeatherModal.lng.toFixed(4)}
+              </p>
+              {mapWeatherModal.loading && <div className="sheet-detail-row">Loading…</div>}
+              {!mapWeatherModal.loading && mapWeatherModal.error && (
+                <div className="sheet-detail-row">{mapWeatherModal.error}</div>
+              )}
+              {!mapWeatherModal.loading && mapWeatherModal.weather && (
+                <>
+                  <div className="sheet-detail-row" style={{ fontSize: '1.2rem' }}>
+                    <span style={{ marginRight: '8px' }}>{mapWeatherModal.weather.emoji}</span>
+                    <strong>{mapWeatherModal.weather.label}</strong>
+                  </div>
+                  <div className="sheet-detail-row">
+                    🌡 {formatWeatherTemp(mapWeatherModal.weather.temperature)} · 💨 {formatWindSpeed(mapWeatherModal.weather.windSpeed)}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
