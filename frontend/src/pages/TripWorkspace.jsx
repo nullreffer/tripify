@@ -31,6 +31,13 @@ const MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP = '160px';
 const ALLTRAILS_MIN_ZOOM = 2;
 const ALLTRAILS_MAX_ZOOM = 18;
 const OFFLINE_CACHE_NAME = 'tripify-map-tiles-v1';
+const MAP_LAYER_OPTIONS = [
+  ['normal', '🗺️ Normal'],
+  ['satellite', '🛰️ Satellite'],
+  ['trails', '🥾 Trails'],
+  ['weather-current', '🌤️ Current weather'],
+  ['weather-scheduled', '🗓️ Scheduled-day weather'],
+];
 
 function resolveMapStyle(setting) {
   if (setting === 'light') return false;
@@ -157,8 +164,10 @@ export default function TripWorkspace() {
   // ── Geographic progress ─────────────────────────────────────────────
   const reachedCount = routeStops.filter(s => s.reached).length;
   const lastReachedIdx = routeStops.reduce((acc, s, i) => s.reached ? i : acc, -1);
+  // Leg i connects stop i -> stop i+1, so completed leg count equals lastReachedIdx.
+  const completedLegCount = Math.max(0, lastReachedIdx);
   const completedDist = route?.legs
-    ? route.legs.slice(0, Math.max(0, lastReachedIdx)).reduce((s, l) => s + (l.distance || 0), 0)
+    ? route.legs.slice(0, completedLegCount).reduce((s, l) => s + (l.distance || 0), 0)
     : 0;
   const completedFraction = route?.distance > 0 ? completedDist / route.distance : 0;
   const remainingDist = route ? (route.distance || 0) - completedDist : 0;
@@ -173,15 +182,25 @@ export default function TripWorkspace() {
     }
     (async () => {
       setWeatherLoading(true);
-      const entries = await Promise.all(routeStops.map(async (stop) => {
-        if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return [stop.id, null];
-        try {
-          const weather = await getWeather(stop.lat, stop.lng);
-          return [stop.id, weather];
-        } catch {
-          return [stop.id, null];
+      const entries = [];
+      const BATCH_SIZE = 8;
+      for (let i = 0; i < routeStops.length; i += BATCH_SIZE) {
+        const batch = routeStops.slice(i, i + BATCH_SIZE);
+        const batchEntries = await Promise.all(batch.map(async (stop) => {
+          if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return [stop.id, null];
+          try {
+            const weather = await getWeather(stop.lat, stop.lng);
+            return [stop.id, weather];
+          } catch {
+            return [stop.id, null];
+          }
+        }));
+        entries.push(...batchEntries);
+        if (i + BATCH_SIZE < routeStops.length) {
+          // Small pause between batches to reduce upstream API throttling risk.
+          await new Promise(resolve => setTimeout(resolve, 120));
         }
-      }));
+      }
       if (cancelled) return;
       setWeatherByStopId(Object.fromEntries(entries.filter(([, data]) => !!data)));
       setWeatherLoading(false);
@@ -398,6 +417,16 @@ export default function TripWorkspace() {
 
   const weatherPins = useMemo(() => {
     if (!['weather-current', 'weather-scheduled'].includes(mapLayer)) return [];
+    const firstDatedIdx = routeStops.findIndex(s => s.targetDate);
+    let fallbackBaseDate = new Date();
+    fallbackBaseDate.setHours(12, 0, 0, 0);
+    if (firstDatedIdx >= 0) {
+      const anchorDate = new Date(routeStops[firstDatedIdx].targetDate);
+      if (!Number.isNaN(anchorDate.getTime())) {
+        anchorDate.setDate(anchorDate.getDate() - firstDatedIdx);
+        fallbackBaseDate = anchorDate;
+      }
+    }
     return routeStops.map((stop, idx) => {
       const weather = weatherByStopId[stop.id];
       if (!weather) return null;
@@ -412,7 +441,7 @@ export default function TripWorkspace() {
           tempLabel: formatWeatherTemp(current.temperature),
         };
       }
-      const fallbackDate = new Date();
+      const fallbackDate = new Date(fallbackBaseDate);
       fallbackDate.setDate(fallbackDate.getDate() + idx);
       const scheduled = buildScheduledDayWeather(weather, stop.targetDate || fallbackDate.toISOString());
       if (!scheduled) return null;
@@ -620,7 +649,7 @@ export default function TripWorkspace() {
           </div>
           {showMapLayers && (
             <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
-              {[['normal', '🗺️ Normal'], ['satellite', '🛰️ Satellite'], ['trails', '🥾 Trails'], ['weather-current', '🌤️ Current weather'], ['weather-scheduled', '🗓️ Scheduled-day weather']].map(([key, label]) => (
+              {MAP_LAYER_OPTIONS.map(([key, label]) => (
                 <button
                   key={key}
                   className={`map-filter-menu-btn${mapLayer === key ? ' active' : ''}`}

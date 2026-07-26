@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Polyline, Marker, useMap, useMapEvents } from 
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import { PIN_TYPES } from '../../constants/pinTypes.js';
+import { getLocationGroupKey } from '../../constants/map.js';
 
 // Fix Leaflet default icon paths (broken in Vite builds)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -81,7 +82,7 @@ function makeWeatherIcon(emoji, tempLabel) {
     background:rgba(15,23,42,.9);color:#fff;
     border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
-    font-size:14px;cursor:pointer;padding:0 8px;gap:4px;
+    font-size:14px;padding:0 8px;gap:4px;
   "><span>${emoji}</span><span style="font-size:11px;font-weight:700;">${tempLabel || ''}</span></div>`;
   return L.divIcon({ html, className: '', iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -32] });
 }
@@ -190,7 +191,12 @@ function LongPressHandler({ onLongPress }) {
 
 function MapTapHandler({ onMapTap }) {
   useMapEvents({
-    click(e) { onMapTap?.(e.latlng); },
+    click(e) {
+      const target = e.originalEvent?.target;
+      const clickedMarker = target?.closest?.('.leaflet-marker-icon, .leaflet-marker-shadow');
+      if (clickedMarker) return;
+      onMapTap?.(e.latlng);
+    },
   });
   return null;
 }
@@ -219,7 +225,7 @@ const TripMap = forwardRef(function TripMap(
   const groupedStops = useMemo(() => {
     const groups = new Map();
     stops.forEach((stop, idx) => {
-      const key = `${Number(stop.lat).toFixed(5)},${Number(stop.lng).toFixed(5)}`;
+      const key = getLocationGroupKey(stop.lat, stop.lng);
       if (!groups.has(key)) groups.set(key, { stops: [], indices: [] });
       groups.get(key).stops.push(stop);
       groups.get(key).indices.push(idx);

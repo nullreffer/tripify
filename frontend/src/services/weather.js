@@ -48,7 +48,14 @@ export async function getWeather(lat, lng) {
   const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
     signal: AbortSignal.timeout(8000),
   });
-  if (!res.ok) throw new Error('Weather unavailable');
+  if (!res.ok) {
+    const reason = res.status >= 500
+      ? 'weather service error'
+      : res.status === 429
+        ? 'weather request limit reached'
+        : `weather request failed (${res.status})`;
+    throw new Error(reason);
+  }
   return res.json();
 }
 
