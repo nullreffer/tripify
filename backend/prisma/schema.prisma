@@ -8,19 +8,20 @@ datasource db {
 }
 
 model User {
-  id             String       @id @default(cuid())
-  googleId       String       @unique
-  email          String       @unique
-  name           String
-  avatar         String?
-  isApproved     Boolean      @default(false)
-  approvedAt     DateTime?
-  trips          Trip[]
-  tripMembers    TripMember[]
-  invitesCreated Invite[]
-  aiMessages     AiMessage[]
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                String             @id @default(cuid())
+  googleId          String             @unique
+  email             String             @unique
+  name              String
+  avatar            String?
+  isApproved        Boolean            @default(false)
+  approvedAt        DateTime?
+  trips             Trip[]
+  tripMembers       TripMember[]
+  invitesCreated    Invite[]
+  aiMessages        AiMessage[]
+  pushSubscriptions PushSubscription[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 }
 
 model Trip {
@@ -233,4 +234,16 @@ model Reservation {
   isPrimary            Boolean   @default(true)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
+}
+
+model PushSubscription {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint String
+  p256dh   String
+  auth     String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, endpoint])
 }

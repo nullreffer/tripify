@@ -1,6 +1,7 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
+const { sendPushToTripMembers } = require('./notifications');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -129,6 +130,10 @@ router.put('/:id', async (req, res, next) => {
         endDate: endDate !== undefined ? (endDate ? new Date(endDate) : null) : trip.endDate,
       }
     });
+    // Notify members when trip details (not just cover image) are updated
+    if (title !== undefined || description !== undefined || startDate !== undefined || endDate !== undefined) {
+      sendPushToTripMembers(req.params.id, req.user.id, 'Trip updated', `${req.user.name} updated trip details.`);
+    }
     res.json(updated);
   } catch (err) {
     next(err);

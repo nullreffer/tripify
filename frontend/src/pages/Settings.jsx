@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavBar from '../components/NavBar.jsx';
 import { getSettings, saveSettings } from '../services/settings.js';
+import { getNotificationState, subscribeToNotifications, unsubscribeFromNotifications } from '../services/notifications.js';
 
 function ToggleGroup({ value, options, onChange }) {
   return (
@@ -22,11 +23,32 @@ function ToggleGroup({ value, options, onChange }) {
 export default function Settings() {
   const navigate = useNavigate();
   const [settings, setSettings] = useState(getSettings());
+  const [notifState, setNotifState] = useState('unsupported');
+  const [notifLoading, setNotifLoading] = useState(false);
+
+  useEffect(() => {
+    getNotificationState().then(setNotifState);
+  }, []);
 
   const update = (key, value) => {
     const next = { ...settings, [key]: value };
     setSettings(next);
     saveSettings(next);
+  };
+
+  const handleNotifToggle = async () => {
+    setNotifLoading(true);
+    try {
+      if (notifState === 'subscribed') {
+        await unsubscribeFromNotifications();
+        setNotifState('unsubscribed');
+      } else {
+        const ok = await subscribeToNotifications();
+        setNotifState(ok ? 'subscribed' : await getNotificationState());
+      }
+    } finally {
+      setNotifLoading(false);
+    }
   };
 
   return (
@@ -132,6 +154,32 @@ export default function Settings() {
                 onChange={e => update('offlineRadiusMi', Number(e.target.value))}
                 style={{ width: '120px' }}
               />
+            </div>
+          </div>
+
+          <div className="settings-divider" />
+
+          <div className="settings-section">
+            <h3>Notifications</h3>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>Trip notifications</span>
+                <span className="settings-row-hint">
+                  {notifState === 'unsupported' && 'Push notifications are not supported in this browser.'}
+                  {notifState === 'denied' && 'Notifications are blocked. Enable them in your browser settings.'}
+                  {notifState === 'subscribed' && 'You will receive notifications when trip members add stops, ask AI, or update the trip.'}
+                  {notifState === 'unsubscribed' && 'Enable to receive notifications when trip members make changes.'}
+                </span>
+              </div>
+              {notifState !== 'unsupported' && notifState !== 'denied' && (
+                <button
+                  className={`btn-${notifState === 'subscribed' ? 'secondary' : 'primary'} btn-sm`}
+                  onClick={handleNotifToggle}
+                  disabled={notifLoading}
+                >
+                  {notifLoading ? '⏳…' : notifState === 'subscribed' ? 'Disable' : 'Enable'}
+                </button>
+              )}
             </div>
           </div>
 
