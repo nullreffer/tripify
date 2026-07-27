@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, Marker, Circle, useMap, useMapEvents } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import { PIN_TYPES } from '../../constants/pinTypes.js';
@@ -219,7 +219,8 @@ const TripMap = forwardRef(function TripMap(
   { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode,
     searchPins = [], onSearchPinSelect, searchSelectedId, mapLayer = 'normal',
     weatherPins = [], completedFraction = 0, onMapTap,
-    hideStopPins = false, onWeatherPinClick },
+    hideStopPins = false, onWeatherPinClick,
+    offlinePins = [], offlineRadiusMeters = 8047 },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -336,6 +337,16 @@ const TripMap = forwardRef(function TripMap(
             position={[pin.lat, pin.lng]}
             icon={makeWeatherIcon(pin.emoji, pin.tempLabel)}
             eventHandlers={onWeatherPinClick ? { click: () => onWeatherPinClick(pin) } : {}}
+          />
+        ))}
+
+        {/* Offline downloaded area circles */}
+        {offlinePins.map(pin => (
+          <Circle
+            key={`offline-${pin.id}`}
+            center={[pin.lat, pin.lng]}
+            radius={offlineRadiusMeters}
+            pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.15, weight: 2 }}
           />
         ))}
       </MapContainer>

@@ -115,6 +115,29 @@ export default function Settings() {
           <div className="settings-divider" />
 
           <div className="settings-section">
+            <h3>Offline Maps</h3>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>Download radius</span>
+                <span className="settings-row-hint">
+                  How many miles around each stop to download for offline use. Currently: {settings.offlineRadiusMi ?? 5} mi
+                </span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={100}
+                step={1}
+                value={settings.offlineRadiusMi ?? 5}
+                onChange={e => update('offlineRadiusMi', Number(e.target.value))}
+                style={{ width: '120px' }}
+              />
+            </div>
+          </div>
+
+          <div className="settings-divider" />
+
+          <div className="settings-section">
             <h3>Trails</h3>
             <div className="settings-row">
               <div className="settings-row-label">

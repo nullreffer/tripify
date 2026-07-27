@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { formatDistance, formatDuration } from '../../services/routing.js';
 
 const REF_TYPES = ['GOOGLE_SHEET', 'BOOKING', 'DOCUMENT', 'LINK', 'OTHER'];
@@ -110,7 +110,7 @@ function ReadinessDashboard({ stops, days, reservations, categories, route, onNa
   );
 }
 
-export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate, onDownloadOffline, offlineDownloading, offlineStatus, tripId }) {
+export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate, onDownloadOffline, offlineDownloading, offlineStatus, tripId, offlineRadiusMi }) {
   const [editingTrip, setEditingTrip] = useState(false);
   const [title, setTitle] = useState(trip?.title || '');
   const [description, setDescription] = useState(trip?.description || '');
@@ -118,8 +118,14 @@ export default function MoreView({ trip, stops, route, references, days, reserva
   const [endDate, setEndDate] = useState(trip?.endDate ? trip.endDate.slice(0, 10) : '');
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [coverPosition, setCoverPosition] = useState(trip?.coverImagePosition ?? 50);
-  const [savingCoverPosition, setSavingCoverPosition] = useState(false);
+  // Crop modal state
+  const [cropSrc, setCropSrc] = useState(null);
+  const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropSaving, setCropSaving] = useState(false);
+  const cropImgRef = useRef(null);
+  const cropContainerRef = useRef(null);
+  const cropDragStart = useRef(null);
   const photoRef = useRef(null);
 
   const [addingRef, setAddingRef] = useState(false);
@@ -137,10 +143,6 @@ export default function MoreView({ trip, stops, route, references, days, reserva
     try { return JSON.parse(localStorage.getItem(`tripify-offline-${tripId}`) || 'null'); } catch { return null; }
   })();
 
-  useEffect(() => {
-    setCoverPosition(trip?.coverImagePosition ?? 50);
-  }, [trip?.coverImagePosition]);
-
   const saveTrip = async () => {
     setSaving(true);
     await onUpdateTrip({ title, description, startDate: startDate || null, endDate: endDate || null });
@@ -154,29 +156,63 @@ export default function MoreView({ trip, stops, route, references, days, reserva
     setRefName(''); setRefUrl(''); setRefType('LINK'); setAddingRef(false);
   };
 
-  const handlePhotoChange = async (e) => {
+  // Open the crop modal with the chosen file
+  const handlePhotoChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploadingPhoto(true);
-    try {
-      const compressed = await compressImage(file, 1200, 0.82);
-      await onUpdateTrip({ coverImage: compressed });
-    } catch (err) {
-      console.error('Photo upload failed:', err);
-    } finally {
-      setUploadingPhoto(false);
-      if (photoRef.current) photoRef.current.value = '';
-    }
+    const url = URL.createObjectURL(file);
+    setCropSrc(url);
+    setCropOffset({ x: 0, y: 0 });
+    setCropZoom(1);
+    if (photoRef.current) photoRef.current.value = '';
   };
 
-  const persistCoverPosition = async () => {
-    const next = Math.max(0, Math.min(100, Math.round(coverPosition)));
-    if ((trip?.coverImagePosition ?? 50) === next) return;
-    setSavingCoverPosition(true);
+  // Crop modal: pointer drag handlers
+  const handleCropPointerDown = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    cropDragStart.current = { x: e.clientX - cropOffset.x, y: e.clientY - cropOffset.y };
+  };
+  const handleCropPointerMove = (e) => {
+    if (!cropDragStart.current) return;
+    setCropOffset({
+      x: e.clientX - cropDragStart.current.x,
+      y: e.clientY - cropDragStart.current.y,
+    });
+  };
+  const handleCropPointerUp = () => { cropDragStart.current = null; };
+
+  // Render final cropped image to canvas and upload
+  const handleCropSave = async () => {
+    const CROP_W = 1200;
+    const CROP_H = 480;
+    setCropSaving(true);
     try {
-      await onUpdateTrip({ coverImagePosition: next });
+      const img = cropImgRef.current;
+      const container = cropContainerRef.current;
+      if (!img || !container) return;
+      const cRect = container.getBoundingClientRect();
+      const iRect = img.getBoundingClientRect();
+      // Natural-pixel scale factor
+      const scaleX = img.naturalWidth / iRect.width;
+      const scaleY = img.naturalHeight / iRect.height;
+      // Position of container top-left relative to image top-left (in natural px)
+      const srcX = (cRect.left - iRect.left) * scaleX;
+      const srcY = (cRect.top - iRect.top) * scaleY;
+      const srcW = cRect.width * scaleX;
+      const srcH = cRect.height * scaleY;
+      const canvas = document.createElement('canvas');
+      canvas.width = CROP_W;
+      canvas.height = CROP_H;
+      canvas.getContext('2d').drawImage(img, srcX, srcY, srcW, srcH, 0, 0, CROP_W, CROP_H);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      await onUpdateTrip({ coverImage: dataUrl });
+      URL.revokeObjectURL(cropSrc);
+      setCropSrc(null);
+    } catch (err) {
+      console.error('Crop save failed:', err);
     } finally {
-      setSavingCoverPosition(false);
+      setCropSaving(false);
+      setUploadingPhoto(false);
     }
   };
 
@@ -240,31 +276,12 @@ export default function MoreView({ trip, stops, route, references, days, reserva
               src={trip.coverImage}
               alt="Trip cover"
               className="more-cover-img"
-              style={{ objectPosition: `50% ${coverPosition}%` }}
             />
           )}
           <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
           <button className="btn-ghost btn-sm" onClick={() => photoRef.current?.click()} disabled={uploadingPhoto}>
             {uploadingPhoto ? '⏳ Uploading…' : trip?.coverImage ? '🖼 Change Cover Photo' : '🖼 Add Cover Photo'}
           </button>
-          {trip?.coverImage && (
-            <div className="more-cover-position">
-              <label htmlFor="cover-position-slider">Move cover photo</label>
-              <input
-                id="cover-position-slider"
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={coverPosition}
-                onChange={e => setCoverPosition(Number(e.target.value))}
-                onMouseUp={persistCoverPosition}
-                onTouchEnd={persistCoverPosition}
-                onBlur={persistCoverPosition}
-                disabled={savingCoverPosition}
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -342,6 +359,11 @@ export default function MoreView({ trip, stops, route, references, days, reserva
           </div>
         )}
         {offlineStatus && <p className="offline-status-msg">{offlineStatus}</p>}
+        {offlineRadiusMi != null && (
+          <p className="more-empty" style={{ margin: '.25rem 0 .5rem' }}>
+            Download radius: <strong>{offlineRadiusMi} mi</strong> around each stop — change in Settings.
+          </p>
+        )}
         <button
           className="btn-primary btn-sm"
           onClick={onDownloadOffline}
@@ -420,29 +442,73 @@ export default function MoreView({ trip, stops, route, references, days, reserva
           </button>
         </div>
       )}
+
+      {/* ── Cover photo crop modal ── */}
+      {cropSrc && (
+        <div className="sheet-overlay" onClick={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }}>
+          <div className="sheet" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="sheet-handle" />
+            <div className="sheet-header">
+              <h3>📸 Crop Cover Photo</h3>
+              <button className="sheet-close" onClick={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }}>×</button>
+            </div>
+            <div className="sheet-body" style={{ flex: 1, overflow: 'hidden', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <p style={{ fontSize: '.85rem', color: 'var(--text-muted)', margin: 0 }}>
+                Drag to reposition · use the slider to zoom
+              </p>
+              {/* Crop viewport */}
+              <div
+                ref={cropContainerRef}
+                style={{
+                  width: '100%', height: '220px', overflow: 'hidden',
+                  borderRadius: '8px', border: '2px solid var(--border)',
+                  position: 'relative', background: '#000', cursor: 'grab',
+                  touchAction: 'none', userSelect: 'none',
+                }}
+                onPointerDown={handleCropPointerDown}
+                onPointerMove={handleCropPointerMove}
+                onPointerUp={handleCropPointerUp}
+                onPointerLeave={handleCropPointerUp}
+              >
+                <img
+                  ref={cropImgRef}
+                  src={cropSrc}
+                  alt="Crop preview"
+                  style={{
+                    position: 'absolute',
+                    transformOrigin: 'center center',
+                    transform: `translate(calc(-50% + ${cropOffset.x}px), calc(-50% + ${cropOffset.y}px)) scale(${cropZoom})`,
+                    top: '50%', left: '50%',
+                    maxWidth: 'none',
+                    height: '100%',
+                    pointerEvents: 'none',
+                    draggable: false,
+                  }}
+                />
+              </div>
+              {/* Zoom slider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>🔍−</span>
+                <input
+                  type="range" min={0.5} max={3} step={0.05}
+                  value={cropZoom}
+                  onChange={e => setCropZoom(Number(e.target.value))}
+                  style={{ flex: 1 }}
+                />
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>🔍+</span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="btn-secondary" style={{ flex: 1 }} onClick={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }}>
+                  Cancel
+                </button>
+                <button className="btn-primary" style={{ flex: 1 }} onClick={handleCropSave} disabled={cropSaving}>
+                  {cropSaving ? '⏳ Saving…' : '✓ Use this crop'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-// Compress image to base64 JPEG
-function compressImage(file, maxDim, quality) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const img = new Image();
-      img.onload = () => {
-        const ratio = Math.min(maxDim / img.width, maxDim / img.height, 1);
-        const w = Math.round(img.width * ratio);
-        const h = Math.round(img.height * ratio);
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.onerror = reject;
-      img.src = ev.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
