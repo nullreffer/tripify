@@ -96,6 +96,44 @@ export default function TripWorkspace() {
     return off;
   }, []);
 
+  // ── Android / browser back button handling ──────────────────────────────
+  // Push a synthetic history entry whenever we open a modal or switch tabs,
+  // so the back button pops that entry before navigating away from the page.
+  useEffect(() => {
+    if (selectedStop || mapWeatherModal) {
+      window.history.pushState({ tripifyModal: true }, '');
+    }
+  }, [selectedStop, mapWeatherModal]);
+
+  useEffect(() => {
+    if (activeTab !== 'map') {
+      window.history.pushState({ tripifyTab: true }, '');
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handlePopState = (e) => {
+      if (selectedStop) {
+        setSelectedStop(null);
+        return;
+      }
+      if (mapWeatherModal) {
+        setMapWeatherModal(null);
+        return;
+      }
+      if (activeTab !== 'map') {
+        setActiveTab('map');
+        // Re-push so subsequent taps still land on map before leaving
+        window.history.pushState({ tripifyTab: true }, '');
+        return;
+      }
+      // No dialogs or non-map tab open — let the browser navigate back
+      navigate(-1);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [selectedStop, mapWeatherModal, activeTab, navigate]);
+
   // System dark mode changes (only when setting = 'auto')
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -227,7 +265,8 @@ export default function TripWorkspace() {
 
   const handleOpenStop = useCallback((stop, { searchNearby = false } = {}) => {
     setActiveTab('map');
-    mapRef.current?.flyToLocation(stop.lat, stop.lng, 15);
+    const pinTapZoom = getSettings().pinTapZoom ?? 15;
+    mapRef.current?.flyToLocation(stop.lat, stop.lng, pinTapZoom);
     if (searchNearby) {
       setSelectedStop(null);
       setMapSearchMode(true);
@@ -435,6 +474,7 @@ export default function TripWorkspace() {
         if (!current) return null;
         return {
           id: `current-${stop.id}`,
+          stopId: stop.id,
           lat: stop.lat,
           lng: stop.lng,
           emoji: current.emoji,
@@ -447,6 +487,7 @@ export default function TripWorkspace() {
       if (!scheduled) return null;
       return {
         id: `scheduled-${stop.id}`,
+        stopId: stop.id,
         lat: stop.lat,
         lng: stop.lng,
         emoji: scheduled.emoji,
@@ -599,13 +640,18 @@ export default function TripWorkspace() {
             userLocation={userLocation}
             onStopSelect={stop => handleOpenStop(stop)}
             onLongPress={handleLongPress}
-            onMapTap={handleMapTapWeather}
+            onMapTap={['weather-current', 'weather-scheduled'].includes(mapLayer) ? handleMapTapWeather : undefined}
             darkMode={darkMode}
             searchPins={mapSearchResults}
             onSearchPinSelect={pin => setSelectedSearchPin(pin)}
             searchSelectedId={selectedSearchPin?.id}
             mapLayer={mapLayer}
             weatherPins={weatherPins}
+            hideStopPins={['weather-current', 'weather-scheduled'].includes(mapLayer)}
+            onWeatherPinClick={pin => {
+              const stop = routeStops.find(s => s.id === pin.stopId);
+              if (stop) handleOpenStop(stop);
+            }}
           />
 
           {/* ── Map overlay control buttons ── */}

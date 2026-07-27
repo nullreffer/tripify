@@ -73,6 +73,23 @@ export default function Settings() {
                 onChange={v => update('mapStyle', v)}
               />
             </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>Zoom when tapping a pin</span>
+                <span className="settings-row-hint">
+                  How far to zoom in when you tap a stop on the map (10 = far, 18 = street level). Currently: {settings.pinTapZoom ?? 15}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={18}
+                step={1}
+                value={settings.pinTapZoom ?? 15}
+                onChange={e => update('pinTapZoom', Number(e.target.value))}
+                style={{ width: '120px' }}
+              />
+            </div>
           </div>
 
           <div className="settings-divider" />

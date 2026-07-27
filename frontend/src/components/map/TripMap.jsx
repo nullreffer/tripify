@@ -218,7 +218,8 @@ function RouteLayer({ route, completedFraction = 0 }) {
 const TripMap = forwardRef(function TripMap(
   { stops = [], route, userLocation, onStopSelect, onLongPress, darkMode,
     searchPins = [], onSearchPinSelect, searchSelectedId, mapLayer = 'normal',
-    weatherPins = [], completedFraction = 0, onMapTap },
+    weatherPins = [], completedFraction = 0, onMapTap,
+    hideStopPins = false, onWeatherPinClick },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -309,7 +310,7 @@ const TripMap = forwardRef(function TripMap(
             });
           }}
         >
-          {groupedStops.map(({ representative, representativeIdx, isNext, count }) => (
+          {!hideStopPins && groupedStops.map(({ representative, representativeIdx, isNext, count }) => (
             <Marker
               key={representative.id}
               position={[representative.lat, representative.lng]}
@@ -334,6 +335,7 @@ const TripMap = forwardRef(function TripMap(
             key={`weather-${pin.id}`}
             position={[pin.lat, pin.lng]}
             icon={makeWeatherIcon(pin.emoji, pin.tempLabel)}
+            eventHandlers={onWeatherPinClick ? { click: () => onWeatherPinClick(pin) } : {}}
           />
         ))}
       </MapContainer>
