@@ -156,15 +156,21 @@ export default function MoreView({ trip, stops, route, references, days, reserva
     setRefName(''); setRefUrl(''); setRefType('LINK'); setAddingRef(false);
   };
 
-  // Open the crop modal with the chosen file
+  // Open the crop modal with the chosen file — read as data URL so the src
+  // is a self-contained base64 string rather than a blob object URL.
   const handlePhotoChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setCropSrc(url);
-    setCropOffset({ x: 0, y: 0 });
-    setCropZoom(1);
     if (photoRef.current) photoRef.current.value = '';
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      if (ev.target?.result) {
+        setCropSrc(String(ev.target.result));
+        setCropOffset({ x: 0, y: 0 });
+        setCropZoom(1);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Crop modal: pointer drag handlers
@@ -207,7 +213,6 @@ export default function MoreView({ trip, stops, route, references, days, reserva
       canvas.getContext('2d').drawImage(img, srcX, srcY, srcW, srcH, 0, 0, CROP_W, CROP_H);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       await onUpdateTrip({ coverImage: dataUrl });
-      URL.revokeObjectURL(cropSrc);
       setCropSrc(null);
     } catch (err) {
       console.error('Crop save failed:', err);
@@ -360,7 +365,7 @@ export default function MoreView({ trip, stops, route, references, days, reserva
           </div>
         )}
         {offlineStatus && <p className="offline-status-msg">{offlineStatus}</p>}
-        {offlineRadiusMi != null && (
+        {offlineRadiusMi !== null && offlineRadiusMi !== undefined && (
           <p className="more-empty" style={{ margin: '.25rem 0 .5rem' }}>
             Download radius: <strong>{offlineRadiusMi} mi</strong> around each stop — change in Settings.
           </p>
@@ -446,12 +451,12 @@ export default function MoreView({ trip, stops, route, references, days, reserva
 
       {/* ── Cover photo crop modal ── */}
       {cropSrc && (
-        <div className="sheet-overlay" onClick={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }}>
+        <div className="sheet-overlay" onClick={() => { setCropSrc(null); }}>
           <div className="sheet" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             <div className="sheet-handle" />
             <div className="sheet-header">
               <h3>📸 Crop Cover Photo</h3>
-              <button className="sheet-close" onClick={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }}>×</button>
+              <button className="sheet-close" onClick={() => { setCropSrc(null); }}>×</button>
             </div>
             <div className="sheet-body" style={{ flex: 1, overflow: 'hidden', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <p style={{ fontSize: '.85rem', color: 'var(--text-muted)', margin: 0 }}>
@@ -499,7 +504,7 @@ export default function MoreView({ trip, stops, route, references, days, reserva
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>🔍+</span>
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button className="btn-secondary" style={{ flex: 1 }} onClick={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }}>
+                <button className="btn-secondary" style={{ flex: 1 }} onClick={() => { setCropSrc(null); }}>
                   Cancel
                 </button>
                 <button className="btn-primary" style={{ flex: 1 }} onClick={handleCropSave} disabled={cropSaving}>
