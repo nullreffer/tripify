@@ -4,6 +4,8 @@ export const DEFAULTS = {
   units: 'imperial',      // 'imperial' | 'metric'
   mapStyle: 'auto',       // 'auto' | 'light' | 'dark'
   orientation: 'portrait', // 'portrait' | 'auto'
+  pinTapZoom: 15,          // zoom level when tapping a pin (10–18)
+  offlineRadiusMi: 5,      // radius in miles for offline tile download
 };
 
 export function getSettings() {

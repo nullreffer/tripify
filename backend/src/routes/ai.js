@@ -2,6 +2,7 @@ const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
 const { GEMINI_MODEL } = require('../config/gemini');
+const { sendPushToTripMembers } = require('./notifications');
 
 const prisma = new PrismaClient();
 const router = express.Router({ mergeParams: true });
@@ -162,6 +163,9 @@ IMPORTANT: When you mention specific places, landmarks, attractions, restaurants
     const saved = await prisma.aiMessage.create({
       data: { tripId: req.params.tripId, userId: req.user.id, role: 'assistant', content: reply }
     });
+
+    // Notify other members that someone consulted the AI
+    sendPushToTripMembers(req.params.tripId, req.user.id, 'AI consulted', `${req.user.name} asked the trip AI a question.`);
 
     res.json({ reply, message: saved });
   } catch (err) { next(err); }

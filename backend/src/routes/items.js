@@ -1,6 +1,7 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
+const { sendPushToTripMembers } = require('./notifications');
 
 const prisma = new PrismaClient();
 const router = express.Router({ mergeParams: true });
@@ -107,6 +108,7 @@ router.post('/categories/:catId/items', requireAuth, async (req, res, next) => {
         order: (max._max.order ?? -1) + 1
       }
     });
+    sendPushToTripMembers(req.params.tripId, req.user.id, 'Packing list updated', `${req.user.name} added "${item.name}" to the packing list.`);
     res.status(201).json(item);
   } catch (err) { next(err); }
 });
@@ -142,6 +144,7 @@ router.delete('/items/:itemId', requireAuth, async (req, res, next) => {
     if (!trip) return res.status(403).json({ error: 'Not found or insufficient permissions' });
 
     await prisma.tripItem.delete({ where: { id: req.params.itemId } });
+    sendPushToTripMembers(req.params.tripId, req.user.id, 'Packing list updated', `${req.user.name} removed an item from the packing list.`);
     res.status(204).send();
   } catch (err) { next(err); }
 });

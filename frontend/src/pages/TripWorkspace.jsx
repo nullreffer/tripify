@@ -31,12 +31,17 @@ const MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP = '160px';
 const ALLTRAILS_MIN_ZOOM = 2;
 const ALLTRAILS_MAX_ZOOM = 18;
 const OFFLINE_CACHE_NAME = 'tripify-map-tiles-v1';
+const MI_TO_KM = 1.60934;
+const MI_TO_METERS = 1609.34;
+// Earth's equatorial circumference in km (used for tile-size estimation)
+const EARTH_CIRCUMFERENCE_KM = 40075.016;
 const MAP_LAYER_OPTIONS = [
   ['normal', '🗺️ Normal'],
   ['satellite', '🛰️ Satellite'],
   ['trails', '🥾 Trails'],
   ['weather-current', '🌤️ Current weather'],
   ['weather-scheduled', '🗓️ Scheduled-day weather'],
+  ['offline', '📵 Offline areas'],
 ];
 
 function resolveMapStyle(setting) {
@@ -95,6 +100,44 @@ export default function TripWorkspace() {
     });
     return off;
   }, []);
+
+  // ── Android / browser back button handling ──────────────────────────────
+  // Push a synthetic history entry whenever we open a modal or switch away
+  // from the map tab, so the back button pops that entry first.
+  useEffect(() => {
+    if (selectedStop || mapWeatherModal) {
+      window.history.pushState({ tripifyModal: true }, '');
+    }
+  }, [selectedStop, mapWeatherModal]);
+
+  useEffect(() => {
+    if (activeTab !== 'map') {
+      window.history.pushState({ tripifyTab: true }, '');
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (selectedStop) {
+        setSelectedStop(null);
+        return;
+      }
+      if (mapWeatherModal) {
+        setMapWeatherModal(null);
+        return;
+      }
+      if (activeTab !== 'map') {
+        // Switch to map — the push for the non-map tab was already consumed by
+        // this popstate, so no re-push needed. The next back will exit the page.
+        setActiveTab('map');
+        return;
+      }
+      // No dialogs or non-map tab open — let the browser navigate back
+      navigate(-1);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [selectedStop, mapWeatherModal, activeTab, navigate]);
 
   // System dark mode changes (only when setting = 'auto')
   useEffect(() => {
@@ -227,7 +270,8 @@ export default function TripWorkspace() {
 
   const handleOpenStop = useCallback((stop, { searchNearby = false } = {}) => {
     setActiveTab('map');
-    mapRef.current?.flyToLocation(stop.lat, stop.lng, 15);
+    const pinTapZoom = getSettings().pinTapZoom ?? 15;
+    mapRef.current?.flyToLocation(stop.lat, stop.lng, pinTapZoom);
     if (searchNearby) {
       setSelectedStop(null);
       setMapSearchMode(true);
@@ -435,6 +479,7 @@ export default function TripWorkspace() {
         if (!current) return null;
         return {
           id: `current-${stop.id}`,
+          stopId: stop.id,
           lat: stop.lat,
           lng: stop.lng,
           emoji: current.emoji,
@@ -447,6 +492,7 @@ export default function TripWorkspace() {
       if (!scheduled) return null;
       return {
         id: `scheduled-${stop.id}`,
+        stopId: stop.id,
         lat: stop.lat,
         lng: stop.lng,
         emoji: scheduled.emoji,
@@ -454,6 +500,22 @@ export default function TripWorkspace() {
       };
     }).filter(Boolean);
   }, [mapLayer, routeStops, weatherByStopId, formatWeatherTemp]);
+
+  // Stops that have been downloaded for offline use
+  const offlinePins = useMemo(() => {
+    if (mapLayer !== 'offline') return [];
+    try {
+      const snapshot = JSON.parse(localStorage.getItem(`tripify-offline-${id}`) || 'null');
+      if (!snapshot) return [];
+      const cachedIds = new Set([
+        ...(snapshot.routeStops || []).map(s => s.id),
+        ...(snapshot.savedStops || []).map(s => s.id),
+      ]);
+      return stops.filter(s => cachedIds.has(s.id));
+    } catch {
+      return [];
+    }
+  }, [mapLayer, stops, id]);
 
   const handleMapTapWeather = useCallback(async (latlng) => {
     if (!latlng) return;
@@ -489,16 +551,24 @@ export default function TripWorkspace() {
         if (state && !areaNames.includes(state)) areaNames.push(state);
       }
 
-      // Build tile URLs: 3×3 neighborhood per stop across multiple zoom levels and map layers
+      // Build tile URLs across zoom levels; tile radius is derived from the
+      // configured offline radius (miles → km → tiles at each zoom level).
+      const radiusMi = settings.offlineRadiusMi ?? 5;
+      const radiusKm = radiusMi * MI_TO_KM;
       const zoomLevels = [8, 10, 12, 14];
       const urls = new Set();
       for (const stop of allStops) {
         for (const z of zoomLevels) {
           const center = latLngToTile(stop.lat, stop.lng, z);
-          // For lower zooms, just download the center tile; for higher zooms, get 3×3 grid
-          const radius = z >= 12 ? 1 : 0;
-          for (let dx = -radius; dx <= radius; dx++) {
-            for (let dy = -radius; dy <= radius; dy++) {
+          // Tile size in km at given zoom and latitude
+          const tileKm = (EARTH_CIRCUMFERENCE_KM * Math.cos((stop.lat * Math.PI) / 180)) / (2 ** z);
+          // Number of tiles to extend in each direction (min 0, enough to cover the radius)
+          const tileRadius = tileKm > 0 ? Math.max(0, Math.ceil(radiusKm / tileKm)) : 0;
+          // Cap per-zoom radius to avoid runaway downloads at high zooms
+          const maxTileRadius = z >= 14 ? 4 : z >= 12 ? 6 : z >= 10 ? 3 : 1;
+          const r = Math.min(tileRadius, maxTileRadius);
+          for (let dx = -r; dx <= r; dx++) {
+            for (let dy = -r; dy <= r; dy++) {
               const tx = center.x + dx;
               const ty = center.y + dy;
               // Standard OSM (normal map)
@@ -532,18 +602,19 @@ export default function TripWorkspace() {
         savedStops,
         downloadedAreas: areaNames,
         tileCount: totalUrls,
+        radiusMi,
         // totalUrls counts each individual tile URL (one per tile per layer).
         // Rough estimate: ~15 KB per tile URL on average.
         estimatedSizeMB: Math.round((totalUrls * 15) / 1024 * 10) / 10,
       };
       localStorage.setItem(`tripify-offline-${id}`, JSON.stringify(snapshot));
-      setOfflineStatus(`Downloaded ~${totalUrls} tiles across normal, satellite, and trail maps.`);
+      setOfflineStatus(`Downloaded ~${totalUrls} tiles (${radiusMi} mi radius) across normal, satellite, and trail maps.`);
     } catch {
       setOfflineStatus('Offline prep partially completed.');
     } finally {
       setOfflinePreparing(false);
     }
-  }, [id, trip?.title, route, routeStops, savedStops]);
+  }, [id, trip?.title, route, routeStops, savedStops, settings]);
 
   useEffect(() => {
     const handler = () => {
@@ -599,13 +670,20 @@ export default function TripWorkspace() {
             userLocation={userLocation}
             onStopSelect={stop => handleOpenStop(stop)}
             onLongPress={handleLongPress}
-            onMapTap={handleMapTapWeather}
+            onMapTap={['weather-current', 'weather-scheduled'].includes(mapLayer) ? handleMapTapWeather : undefined}
             darkMode={darkMode}
             searchPins={mapSearchResults}
             onSearchPinSelect={pin => setSelectedSearchPin(pin)}
             searchSelectedId={selectedSearchPin?.id}
             mapLayer={mapLayer}
             weatherPins={weatherPins}
+            hideStopPins={['weather-current', 'weather-scheduled'].includes(mapLayer)}
+            onWeatherPinClick={pin => {
+              const stop = routeStops.find(s => s.id === pin.stopId);
+              if (stop) handleOpenStop(stop);
+            }}
+            offlinePins={offlinePins}
+            offlineRadiusMeters={(settings.offlineRadiusMi ?? 5) * MI_TO_METERS}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -917,6 +995,7 @@ export default function TripWorkspace() {
                 offlineDownloading={offlinePreparing}
                 offlineStatus={offlineStatus}
                 tripId={id}
+                offlineRadiusMi={settings.offlineRadiusMi ?? 5}
               />
             )}
             {activeTab === 'gallery' && (

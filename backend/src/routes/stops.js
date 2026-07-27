@@ -1,6 +1,7 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
+const { sendPushToTripMembers } = require('./notifications');
 
 const prisma = new PrismaClient();
 const router = express.Router({ mergeParams: true });
@@ -72,6 +73,8 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     // Touch trip updatedAt
     await prisma.trip.update({ where: { id: req.params.tripId }, data: {} });
+    // Notify other trip members
+    sendPushToTripMembers(req.params.tripId, req.user.id, 'New stop added', `${req.user.name} added "${stop.name}" to the trip.`);
     res.status(201).json(stop);
   } catch (err) { next(err); }
 });
@@ -232,6 +235,7 @@ router.delete('/:stopId', requireAuth, async (req, res, next) => {
       )
     );
     await prisma.trip.update({ where: { id: req.params.tripId }, data: {} });
+    sendPushToTripMembers(req.params.tripId, req.user.id, 'Stop removed', `${req.user.name} removed "${stop.name}" from the trip.`);
     res.status(204).send();
   } catch (err) { next(err); }
 });
