@@ -474,6 +474,7 @@ export default function MoreView({ trip, stops, route, references, days, reserva
                   ref={cropImgRef}
                   src={cropSrc}
                   alt="Crop preview"
+                  draggable={false}
                   style={{
                     position: 'absolute',
                     transformOrigin: 'center center',
@@ -482,7 +483,6 @@ export default function MoreView({ trip, stops, route, references, days, reserva
                     maxWidth: 'none',
                     height: '100%',
                     pointerEvents: 'none',
-                    draggable: false,
                   }}
                 />
               </div>

@@ -31,6 +31,10 @@ const MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP = '160px';
 const ALLTRAILS_MIN_ZOOM = 2;
 const ALLTRAILS_MAX_ZOOM = 18;
 const OFFLINE_CACHE_NAME = 'tripify-map-tiles-v1';
+const MI_TO_KM = 1.60934;
+const MI_TO_METERS = 1609.34;
+// Earth's equatorial circumference in km (used for tile-size estimation)
+const EARTH_CIRCUMFERENCE_KM = 40075.016;
 const MAP_LAYER_OPTIONS = [
   ['normal', '🗺️ Normal'],
   ['satellite', '🛰️ Satellite'],
@@ -550,14 +554,14 @@ export default function TripWorkspace() {
       // Build tile URLs across zoom levels; tile radius is derived from the
       // configured offline radius (miles → km → tiles at each zoom level).
       const radiusMi = settings.offlineRadiusMi ?? 5;
-      const radiusKm = radiusMi * 1.60934;
+      const radiusKm = radiusMi * MI_TO_KM;
       const zoomLevels = [8, 10, 12, 14];
       const urls = new Set();
       for (const stop of allStops) {
         for (const z of zoomLevels) {
           const center = latLngToTile(stop.lat, stop.lng, z);
           // Tile size in km at given zoom and latitude
-          const tileKm = (40075.016 * Math.cos((stop.lat * Math.PI) / 180)) / (2 ** z);
+          const tileKm = (EARTH_CIRCUMFERENCE_KM * Math.cos((stop.lat * Math.PI) / 180)) / (2 ** z);
           // Number of tiles to extend in each direction (min 0, enough to cover the radius)
           const tileRadius = tileKm > 0 ? Math.max(0, Math.ceil(radiusKm / tileKm)) : 0;
           // Cap per-zoom radius to avoid runaway downloads at high zooms
@@ -679,7 +683,7 @@ export default function TripWorkspace() {
               if (stop) handleOpenStop(stop);
             }}
             offlinePins={offlinePins}
-            offlineRadiusMeters={(settings.offlineRadiusMi ?? 5) * 1609.34}
+            offlineRadiusMeters={(settings.offlineRadiusMi ?? 5) * MI_TO_METERS}
           />
 
           {/* ── Map overlay control buttons ── */}

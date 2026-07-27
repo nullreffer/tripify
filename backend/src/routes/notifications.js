@@ -1,16 +1,27 @@
 const express = require('express');
 const webpush = require('web-push');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
 
 const prisma = new PrismaClient();
 const router = express.Router();
 
+// Allow up to 10 subscription changes per user per 15 minutes
+const subscribeRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+});
+
 // Configure VAPID keys (generate once with: npx web-push generate-vapid-keys)
 // Set VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, and VAPID_SUBJECT in environment variables.
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:support@tripify.app';
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:admin@tripify.app',
+    VAPID_SUBJECT,
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
   );
@@ -22,7 +33,7 @@ router.get('/vapid-public-key', (_req, res) => {
 });
 
 // POST /api/notifications/subscribe — save or update a push subscription for the current user
-router.post('/subscribe', requireAuth, async (req, res, next) => {
+router.post('/subscribe', requireAuth, subscribeRateLimit, async (req, res, next) => {
   try {
     const { endpoint, keys } = req.body;
     if (!endpoint || !keys?.p256dh || !keys?.auth) {
@@ -38,7 +49,7 @@ router.post('/subscribe', requireAuth, async (req, res, next) => {
 });
 
 // DELETE /api/notifications/subscribe — remove a push subscription
-router.delete('/subscribe', requireAuth, async (req, res, next) => {
+router.delete('/subscribe', requireAuth, subscribeRateLimit, async (req, res, next) => {
   try {
     const { endpoint } = req.body;
     if (!endpoint) return res.status(400).json({ error: 'endpoint is required' });
