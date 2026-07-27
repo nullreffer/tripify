@@ -102,8 +102,8 @@ export default function TripWorkspace() {
   }, []);
 
   // ── Android / browser back button handling ──────────────────────────────
-  // Push a synthetic history entry whenever we open a modal or switch tabs,
-  // so the back button pops that entry before navigating away from the page.
+  // Push a synthetic history entry whenever we open a modal or switch away
+  // from the map tab, so the back button pops that entry first.
   useEffect(() => {
     if (selectedStop || mapWeatherModal) {
       window.history.pushState({ tripifyModal: true }, '');
@@ -117,7 +117,7 @@ export default function TripWorkspace() {
   }, [activeTab]);
 
   useEffect(() => {
-    const handlePopState = (e) => {
+    const handlePopState = () => {
       if (selectedStop) {
         setSelectedStop(null);
         return;
@@ -127,9 +127,9 @@ export default function TripWorkspace() {
         return;
       }
       if (activeTab !== 'map') {
+        // Switch to map — the push for the non-map tab was already consumed by
+        // this popstate, so no re-push needed. The next back will exit the page.
         setActiveTab('map');
-        // Re-push so subsequent taps still land on map before leaving
-        window.history.pushState({ tripifyTab: true }, '');
         return;
       }
       // No dialogs or non-map tab open — let the browser navigate back

@@ -81,8 +81,12 @@ export async function getNotificationState() {
 
 /** Convert a base64url VAPID public key to Uint8Array for PushManager.subscribe */
 function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(base64);
-  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+  try {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+  } catch (err) {
+    throw new Error(`Invalid VAPID public key — check VITE_API_URL and server VAPID configuration: ${err.message}`);
+  }
 }

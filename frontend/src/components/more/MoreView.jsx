@@ -186,6 +186,7 @@ export default function MoreView({ trip, stops, route, references, days, reserva
     const CROP_W = 1200;
     const CROP_H = 480;
     setCropSaving(true);
+    setUploadingPhoto(true);
     try {
       const img = cropImgRef.current;
       const container = cropContainerRef.current;

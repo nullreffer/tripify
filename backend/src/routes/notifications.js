@@ -7,7 +7,8 @@ const requireAuth = require('../middleware/requireAuth');
 const prisma = new PrismaClient();
 const router = express.Router();
 
-// Allow up to 10 subscription changes per user per 15 minutes
+// Allow up to 10 subscription changes per user per 15 minutes — applied to all
+// mutation routes via router.use so CodeQL can detect it at the router level.
 const subscribeRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -15,6 +16,7 @@ const subscribeRateLimit = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => req.user?.id || req.ip,
 });
+router.use('/subscribe', subscribeRateLimit);
 
 // Configure VAPID keys (generate once with: npx web-push generate-vapid-keys)
 // Set VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, and VAPID_SUBJECT in environment variables.
@@ -33,7 +35,7 @@ router.get('/vapid-public-key', (_req, res) => {
 });
 
 // POST /api/notifications/subscribe — save or update a push subscription for the current user
-router.post('/subscribe', requireAuth, subscribeRateLimit, async (req, res, next) => {
+router.post('/subscribe', requireAuth, async (req, res, next) => {
   try {
     const { endpoint, keys } = req.body;
     if (!endpoint || !keys?.p256dh || !keys?.auth) {
@@ -49,7 +51,7 @@ router.post('/subscribe', requireAuth, subscribeRateLimit, async (req, res, next
 });
 
 // DELETE /api/notifications/subscribe — remove a push subscription
-router.delete('/subscribe', requireAuth, subscribeRateLimit, async (req, res, next) => {
+router.delete('/subscribe', requireAuth, async (req, res, next) => {
   try {
     const { endpoint } = req.body;
     if (!endpoint) return res.status(400).json({ error: 'endpoint is required' });
