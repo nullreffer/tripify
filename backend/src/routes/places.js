@@ -19,9 +19,9 @@ const placesRateLimit = rateLimit({
 });
 
 const METERS_PER_DEGREE_LATITUDE = 111320;
-const MAX_NON_WRAPAROUND_LNG_SPAN = 180;
-const MAX_RECTANGLE_LAT_SPAN = 90;
 const MIN_COSINE_FOR_LNG_CALCULATION = 0.2;
+// Hard cap: 100 miles in meters — prevents slow global searches on zoomed-out maps
+const MAX_SEARCH_RADIUS_METERS = 160934;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -48,10 +48,14 @@ function estimateViewportRadiusMeters(north, south, east, west) {
     MIN_COSINE_FOR_LNG_CALCULATION,
     Math.cos(centerLat * Math.PI / 180)
   );
-  return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), 5000, 50000);
+  // Clamp: minimum 5 km, maximum 100 miles — keeps searches fast even on zoomed-out maps
+  return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), 5000, MAX_SEARCH_RADIUS_METERS);
 }
 
-function buildLocationBias({ north, south, east, west, lat, lng }) {
+// Build a locationRestriction (hard circle limit) centred on the provided point.
+// Uses the map centre passed by the client (lat/lng) when available, falling back
+// to the viewport centre — always capped at the 100-mile radius.
+function buildLocationRestriction({ north, south, east, west, lat, lng }) {
   const centerLat = parseLatitude(lat);
   const centerLng = normalizeLongitude(lng);
 
@@ -60,40 +64,30 @@ function buildLocationBias({ north, south, east, west, lat, lng }) {
   const eastNum = normalizeLongitude(east);
   const westNum = normalizeLongitude(west);
 
-  if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
-    const latSpan = northNum - southNum;
-    const rawLngSpan = eastNum - westNum;
-    let lngSpan = rawLngSpan;
-    if (lngSpan < 0) lngSpan += 360;
-
-    if (
-      latSpan <= MAX_RECTANGLE_LAT_SPAN &&
-      rawLngSpan > 0 &&
-      rawLngSpan <= MAX_NON_WRAPAROUND_LNG_SPAN
-    ) {
-      return {
-        rectangle: {
-          low: { latitude: southNum, longitude: westNum },
-          high: { latitude: northNum, longitude: eastNum },
-        },
-      };
+  // Prefer the explicit map centre passed by the client
+  if (centerLat != null && centerLng != null) {
+    let radius = MAX_SEARCH_RADIUS_METERS;
+    if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
+      radius = estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum);
     }
-
-    const viewportCenterLat = (northNum + southNum) / 2;
-    const viewportCenterLng = normalizeLongitude(westNum + (lngSpan / 2));
     return {
       circle: {
-        center: { latitude: viewportCenterLat, longitude: viewportCenterLng },
-        radius: estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum),
+        center: { latitude: centerLat, longitude: centerLng },
+        radius,
       },
     };
   }
 
-  if (centerLat != null && centerLng != null) {
+  // Fall back to viewport centre when no explicit centre is provided
+  if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
+    let lngSpan = eastNum - westNum;
+    if (lngSpan < 0) lngSpan += 360;
+    const viewportCenterLat = (northNum + southNum) / 2;
+    const viewportCenterLng = normalizeLongitude(westNum + lngSpan / 2);
     return {
       circle: {
-        center: { latitude: centerLat, longitude: centerLng },
-        radius: 50000,
+        center: { latitude: viewportCenterLat, longitude: viewportCenterLng },
+        radius: estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum),
       },
     };
   }
@@ -205,8 +199,10 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
 
   try {
     const body = { textQuery: q.trim(), maxResultCount: 20 };
-    const locationBias = buildLocationBias({ north, south, east, west, lat, lng });
-    if (locationBias) body.locationBias = locationBias;
+    // Use locationRestriction (hard circle limit ≤ 100 mi) instead of locationBias
+    // so the API never searches a huge area on zoomed-out maps.
+    const locationRestriction = buildLocationRestriction({ north, south, east, west, lat, lng });
+    if (locationRestriction) body.locationRestriction = locationRestriction;
 
     const response = await fetch(`${PLACES_NEW_BASE}:searchText`, {
       method: 'POST',

@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const { PrismaClient } = require('@prisma/client');
@@ -7,6 +8,19 @@ const { GEMINI_MODEL } = require('../config/gemini');
 
 const prisma = new PrismaClient();
 const router = express.Router({ mergeParams: true });
+
+const aiGenerateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many AI generation requests. Please slow down.' },
+});
+
+// Constants for route-based stop insertion
+const APPROX_DRIVING_SPEED_KMH = 100;
+const MAX_ROUTE_SAMPLE_POINTS = 10;
 
 // multer: in-memory storage, max 5 MB, accept spreadsheet types only
 const upload = multer({
@@ -567,6 +581,237 @@ router.post('/items', requireAuth, upload.single('file'), async (req, res, next)
       return res.status(422).json({ error: 'Gemini could not extract items from this spreadsheet. Try a simpler format.' });
     }
     next(err);
+  }
+});
+
+// ── POST /api/import/trip/ai-generate  (AI trip generation from description) ──
+// Stream NDJSON progress like /trip/preview so the frontend can show live status.
+// Handles: basic trip parsing, route-based stop insertion (e.g. "add Costco every 2h").
+router.post('/trip/ai-generate', aiGenerateLimit, requireAuth, async (req, res) => {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  const send = (obj) => {
+    try { res.write(JSON.stringify(obj) + '\n'); } catch (_) { /* client disconnected */ }
+  };
+
+  try {
+    const { description, title } = req.body;
+    if (!description?.trim()) {
+      send({ type: 'error', message: 'Description is required' });
+      return res.end();
+    }
+
+    send({ type: 'status', message: 'Asking AI to plan your trip…' });
+
+    const tripGenPrompt = `You are a travel planning AI for the app Azitrip. A user has described their trip below.
+
+User description:
+"""
+${description.trim()}
+"""
+
+Extract a complete structured trip plan and return ONLY valid JSON (no markdown fences, no explanation) matching this schema exactly:
+{
+  "title": "string — trip name (derive from destinations if not given)",
+  "description": "string or null — brief summary",
+  "startDate": "ISO date or null",
+  "endDate": "ISO date or null",
+  "stops": [
+    {
+      "name": "string — place name",
+      "address": "string or null — best guess at full address",
+      "lat": number or null,
+      "lng": number or null,
+      "pinType": "GENERAL|STAY|HOTEL|CAMPGROUND|HIKING_TRAIL|RESTAURANT|ATTRACTION|GAS_STATION|AIRPORT|PARKING|OTHER",
+      "notes": "string or null — any relevant notes for this stop",
+      "targetDate": "ISO datetime or null",
+      "durationHours": number or null
+    }
+  ],
+  "routeStopRequests": [
+    {
+      "type": "places_along_route",
+      "query": "string — what to search for (e.g. 'Costco', 'gas station')",
+      "afterStopIndex": number — insert after this stop index (0-based),
+      "beforeStopIndex": number — and before this stop index,
+      "intervalHours": number or null — add one stop every N driving hours,
+      "intervalKm": number or null — add one stop every N km
+    }
+  ],
+  "items": [
+    {
+      "name": "category name",
+      "color": "#hex or null",
+      "items": [
+        { "name": "string", "quantity": number or null, "unit": "string or null", "notes": "string or null", "required": boolean }
+      ]
+    }
+  ],
+  "days": []
+}
+
+Rules:
+- stops must be in order of travel
+- If the user says things like "add Costco every 2 hours on my route from A to B", add a routeStopRequests entry with afterStopIndex for the index of A and beforeStopIndex for the index of B, intervalHours=2, query="Costco"
+- If lat/lng are not known, set them to null (app will geocode)
+- If no items/packing list is mentioned, return items: []
+- If no days/itinerary detail is given, return days: []
+- Always derive a sensible title if not provided
+- Keep notes concise but informative`;
+
+    let raw;
+    try {
+      raw = await callGemini(tripGenPrompt);
+      raw = stripJsonFences(raw);
+    } catch (err) {
+      send({ type: 'error', message: err.message.includes('GEMINI') ? 'AI service not configured — add GEMINI_API_KEY.' : 'AI service error. Please try again.' });
+      return res.end();
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch {
+      send({ type: 'error', message: 'AI returned unexpected output. Please try rephrasing your description.' });
+      return res.end();
+    }
+
+    if (!parsed.title) {
+      send({ type: 'error', message: 'AI could not determine a trip title. Please include a destination in your description.' });
+      return res.end();
+    }
+
+    // Geocode each stop
+    const rawStops = (parsed.stops || []).filter(s => s.name?.trim());
+    const geocodedStops = [];
+    for (let i = 0; i < rawStops.length; i++) {
+      const s = rawStops[i];
+      send({ type: 'geocoding', current: i + 1, total: rawStops.length, name: s.name.trim() });
+      const geocoded = await geocodeStop(s.name.trim(), s.address || null);
+      const fallbackLat = Number.isFinite(Number(s.lat)) ? Number(s.lat) : null;
+      const fallbackLng = Number.isFinite(Number(s.lng)) ? Number(s.lng) : null;
+      geocodedStops.push({
+        name: s.name.trim(),
+        address: geocoded?.address || s.address || null,
+        lat: geocoded?.lat ?? fallbackLat,
+        lng: geocoded?.lng ?? fallbackLng,
+        pinType: s.pinType || 'GENERAL',
+        notes: s.notes || null,
+        targetDate: s.targetDate || null,
+        durationHours: s.durationHours || null,
+        geocodeOk: !!(geocoded?.lat),
+      });
+    }
+
+    // Process routeStopRequests — find stops along route at intervals
+    const routeRequests = Array.isArray(parsed.routeStopRequests) ? parsed.routeStopRequests : [];
+    if (routeRequests.length > 0) {
+      const googleKey = process.env.GOOGLE_PLACES_API_KEY;
+      for (const routeReq of routeRequests) {
+        if (routeReq.type !== 'places_along_route') continue;
+        const afterIdx = Math.max(0, Math.min(routeReq.afterStopIndex ?? 0, geocodedStops.length - 2));
+        const beforeIdx = Math.min(geocodedStops.length - 1, Math.max(afterIdx + 1, routeReq.beforeStopIndex ?? afterIdx + 1));
+        const startStop = geocodedStops[afterIdx];
+        const endStop = geocodedStops[beforeIdx];
+        if (!startStop?.lat || !endStop?.lat) continue;
+
+        send({ type: 'status', message: `Finding "${routeReq.query}" along route…` });
+
+        // Build sample points between the two stops for Places API queries
+        const samplePoints = [];
+        if (routeReq.intervalHours && routeReq.intervalHours > 0) {
+          // Approximate driving speed 100 km/h to turn hours into km intervals
+          const intervalKm = routeReq.intervalHours * APPROX_DRIVING_SPEED_KMH;
+          const totalKm = Math.sqrt(
+            ((endStop.lat - startStop.lat) * 111) ** 2 +
+            ((endStop.lng - startStop.lng) * 111 * Math.cos(startStop.lat * Math.PI / 180)) ** 2
+          );
+          const steps = Math.max(1, Math.floor(totalKm / intervalKm));
+          for (let s = 1; s <= steps; s++) {
+            const t = s / (steps + 1);
+            samplePoints.push({ lat: startStop.lat + (endStop.lat - startStop.lat) * t, lng: startStop.lng + (endStop.lng - startStop.lng) * t });
+          }
+        } else if (routeReq.intervalKm && routeReq.intervalKm > 0) {
+          const totalKm = Math.sqrt(
+            ((endStop.lat - startStop.lat) * 111) ** 2 +
+            ((endStop.lng - startStop.lng) * 111 * Math.cos(startStop.lat * Math.PI / 180)) ** 2
+          );
+          const steps = Math.max(1, Math.floor(totalKm / routeReq.intervalKm));
+          for (let s = 1; s <= steps; s++) {
+            const t = s / (steps + 1);
+            samplePoints.push({ lat: startStop.lat + (endStop.lat - startStop.lat) * t, lng: startStop.lng + (endStop.lng - startStop.lng) * t });
+          }
+        } else {
+          // Default: one stop in the middle
+          samplePoints.push({ lat: (startStop.lat + endStop.lat) / 2, lng: (startStop.lng + endStop.lng) / 2 });
+        }
+
+        // Query Places API at each sample point
+        const insertionStops = [];
+        for (const pt of samplePoints.slice(0, MAX_ROUTE_SAMPLE_POINTS)) {
+          if (!googleKey) break;
+          try {
+            const body = {
+              textQuery: routeReq.query,
+              maxResultCount: 1,
+              locationRestriction: { circle: { center: { latitude: pt.lat, longitude: pt.lng }, radius: 50000 } },
+            };
+            const placeRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Goog-Api-Key': googleKey,
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress,places.types',
+              },
+              body: JSON.stringify(body),
+              signal: AbortSignal.timeout(8000),
+            });
+            if (!placeRes.ok) continue;
+            const placeData = await placeRes.json();
+            const place = placeData.places?.[0];
+            if (!place?.location) continue;
+            insertionStops.push({
+              name: place.displayName?.text || routeReq.query,
+              address: place.formattedAddress || null,
+              lat: place.location.latitude,
+              lng: place.location.longitude,
+              pinType: routeReq.query.toLowerCase().includes('gas') ? 'GAS_STATION' : 'GENERAL',
+              notes: `Added by AI: ${routeReq.query} along route`,
+              geocodeOk: true,
+            });
+          } catch { /* skip this point on error */ }
+        }
+
+        // Insert found stops after the afterIdx in geocodedStops
+        if (insertionStops.length > 0) {
+          geocodedStops.splice(afterIdx + 1, 0, ...insertionStops);
+        }
+      }
+    }
+
+    // Best-effort extract packing list
+    let items = [];
+    if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+      items = parsed.items;
+    }
+
+    send({
+      type: 'done',
+      data: {
+        title: parsed.title,
+        description: parsed.description || description.trim(),
+        startDate: parsed.startDate || null,
+        endDate: parsed.endDate || null,
+        stops: geocodedStops,
+        items,
+        days: Array.isArray(parsed.days) ? parsed.days : [],
+      },
+    });
+    res.end();
+  } catch (err) {
+    console.error('AI generate error:', err);
+    send({ type: 'error', message: 'An unexpected error occurred. Please try again.' });
+    res.end();
   }
 });
 

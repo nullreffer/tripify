@@ -29,12 +29,12 @@ export async function searchLocations(query) {
 // Search for POIs near a given map viewport using Overpass API (much better for chain stores / POIs).
 // Falls back to Nominatim when no bounds available.
 // Also queries Google Places API and merges results.
-export async function searchNearby(query, bounds) {
+export async function searchNearby(query, bounds, center) {
   if (!query?.trim()) return [];
 
   const [osmResult, googleResult] = await Promise.allSettled([
     osmSearchNearby(query, bounds),
-    googlePlacesSearch(query, bounds),
+    googlePlacesSearch(query, bounds, center),
   ]);
 
   const osm = osmResult.status === 'fulfilled' ? osmResult.value : [];
@@ -52,7 +52,7 @@ async function osmSearchNearby(query, bounds) {
   return searchNominatimViewbox(query, null);
 }
 
-async function googlePlacesSearch(query, bounds) {
+async function googlePlacesSearch(query, bounds, center) {
   try {
     const params = new URLSearchParams({ q: query });
     if (bounds) {
@@ -60,6 +60,11 @@ async function googlePlacesSearch(query, bounds) {
       params.set('south', bounds.south);
       params.set('east', bounds.east);
       params.set('west', bounds.west);
+    }
+    // Pass the map centre so the backend can anchor the 100-mile search circle there
+    if (center) {
+      params.set('lat', center.lat);
+      params.set('lng', center.lng);
     }
     const res = await fetch(`${API_BASE}/api/places/search?${params}`, {
       credentials: 'include',

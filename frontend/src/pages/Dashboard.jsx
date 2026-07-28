@@ -16,13 +16,14 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [newTripTitle, setNewTripTitle] = useState('');
+  const [newTripDescription, setNewTripDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
   const [inviteTarget, setInviteTarget] = useState(null);
 
   // Import flow states
   const [importMode, setImportMode] = useState(false);
-  // step: 'upload' | 'processing' | 'review' | 'creating'
+  // 'upload' | 'ai-input' | 'processing' | 'review' | 'creating'
   const [importStep, setImportStep] = useState('upload');
   const [importCurrentMsg, setImportCurrentMsg] = useState('');
   const [geocodeProgress, setGeocodeProgress] = useState(null); // { current, total }
@@ -33,6 +34,10 @@ function Dashboard() {
   const [editQuery, setEditQuery] = useState('');
   const [editResults, setEditResults] = useState([]);
   const [editSearching, setEditSearching] = useState(false);
+
+  // AI generate flow
+  const [aiDescription, setAiDescription] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   const fileRef = useRef(null);
 
@@ -63,12 +68,13 @@ function Dashboard() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: newTripTitle.trim() })
+        body: JSON.stringify({ title: newTripTitle.trim(), description: newTripDescription.trim() || undefined })
       });
 
       if (res.ok) {
         const trip = await res.json();
         setNewTripTitle('');
+        setNewTripDescription('');
         setShowModal(false);
         navigate(`/trips/${trip.id}`);
       }
@@ -89,11 +95,14 @@ function Dashboard() {
     setEditingStop(false);
     setEditQuery('');
     setEditResults([]);
+    setAiDescription('');
+    setAiGenerating(false);
   };
 
   const closeModal = () => {
     setShowModal(false);
     setNewTripTitle('');
+    setNewTripDescription('');
     setImportMode(false);
     resetImport();
   };
@@ -168,6 +177,76 @@ function Dashboard() {
       setError(err.message);
       setImportStep('upload');
       setImportCurrentMsg('');
+    }
+  };
+
+  // ── AI description-based trip generation ─────────────────────────────────
+  const handleAiGenerate = async () => {
+    if (!aiDescription.trim() || aiGenerating) return;
+    setAiGenerating(true);
+    setImportStep('processing');
+    setImportCurrentMsg('Asking AI to plan your trip…');
+    setGeocodeProgress(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/import/trip/ai-generate`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: aiDescription.trim() }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Generation failed');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const processLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        let event;
+        try { event = JSON.parse(trimmed); } catch { return; }
+
+        if (event.type === 'status') {
+          setImportCurrentMsg(event.message);
+        } else if (event.type === 'geocoding') {
+          setGeocodeProgress({ current: event.current, total: event.total });
+          setImportCurrentMsg(`Locating "${event.name}"… (${event.current}/${event.total})`);
+        } else if (event.type === 'done') {
+          const data = event.data;
+          setPreviewData(data);
+          setConfirmedStops(data.stops.map(s => ({ ...s })));
+          setReviewIndex(0);
+          setEditingStop(false);
+          setEditQuery('');
+          setEditResults([]);
+          setImportStep('review');
+        } else if (event.type === 'error') {
+          throw new Error(event.message);
+        }
+      };
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) processLine(line);
+      }
+      if (buffer.trim()) processLine(buffer);
+
+    } catch (err) {
+      setError(err.message);
+      setImportStep('ai-input');
+      setImportCurrentMsg('');
+    } finally {
+      setAiGenerating(false);
     }
   };
 
@@ -257,6 +336,35 @@ function Dashboard() {
 
   // ── Render import modal body based on current step ──────────────────────────
   const renderImportBody = () => {
+    if (importStep === 'ai-input') {
+      return (
+        <div className="modal-form">
+          <p className="modal-import-hint">
+            Describe your trip in natural language. AI will extract stops, dates, packing items, and more. You can say things like "add Costco stops every 2 hours from Denver to Phoenix".
+          </p>
+          <textarea
+            className="ai-description-input"
+            value={aiDescription}
+            onChange={e => setAiDescription(e.target.value)}
+            placeholder="e.g. Road trip from New York to LA, leaving June 15. Stopping at Nashville, Memphis, and Dallas. I need camping gear. Add gas stations every 3 hours on the highway."
+            rows={6}
+            autoFocus
+          />
+          <button
+            className="btn-primary btn-full"
+            onClick={handleAiGenerate}
+            disabled={!aiDescription.trim() || aiGenerating}
+            style={{ marginTop: '10px' }}
+          >
+            {aiGenerating ? 'Planning…' : '✨ Generate Trip'}
+          </button>
+          <button className="btn-ghost btn-sm" onClick={() => { setImportStep('upload'); setImportMode(false); }} style={{ marginTop: '8px' }}>
+            ← Back
+          </button>
+        </div>
+      );
+    }
+
     if (importStep === 'upload') {
       return (
         <div className="modal-form">
@@ -504,7 +612,8 @@ function Dashboard() {
               <h3 id="modal-title">
                 {!importMode && 'New Trip'}
                 {importMode && importStep === 'upload' && 'Import from Spreadsheet'}
-                {importMode && importStep === 'processing' && 'Importing…'}
+                {importMode && importStep === 'ai-input' && 'Generate with AI'}
+                {importMode && importStep === 'processing' && 'Working…'}
                 {importMode && importStep === 'review' && (reviewIndex < (confirmedStops?.length || 0) ? 'Review Stops' : 'Confirm Trip')}
                 {importMode && importStep === 'creating' && 'Creating Trip…'}
               </h3>
@@ -526,6 +635,16 @@ function Dashboard() {
                     autoFocus
                     maxLength={100}
                   />
+                  <label htmlFor="trip-desc" style={{ marginTop: '8px' }}>Description <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span></label>
+                  <textarea
+                    id="trip-desc"
+                    className="modal-description-input"
+                    value={newTripDescription}
+                    onChange={e => setNewTripDescription(e.target.value)}
+                    placeholder="e.g. Summer road trip through the national parks…"
+                    rows={2}
+                    maxLength={500}
+                  />
                   <div className="modal-actions">
                     <button type="button" className="btn-secondary" onClick={closeModal}>
                       Cancel
@@ -540,6 +659,13 @@ function Dashboard() {
                   </div>
                 </form>
                 <div className="modal-divider"><span>or</span></div>
+                <button
+                  className="modal-import-btn"
+                  onClick={() => { setImportMode(true); setImportStep('ai-input'); }}
+                  style={{ marginBottom: '8px' }}
+                >
+                  ✨ Generate with AI
+                </button>
                 <button className="modal-import-btn" onClick={() => setImportMode(true)}>
                   📊 Import from spreadsheet
                 </button>
