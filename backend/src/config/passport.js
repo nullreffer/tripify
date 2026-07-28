@@ -107,7 +107,7 @@ if (
           teamID: process.env.APPLE_TEAM_ID,
           keyID: process.env.APPLE_KEY_ID,
           // APPLE_PRIVATE_KEY may contain literal \n — normalise to real newlines
-          privateKeyString: process.env.APPLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          privateKeyString: (process.env.APPLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
           callbackURL: process.env.APPLE_CALLBACK_URL || `${(process.env.FRONTEND_URL || '').split(',')[0]}/auth/apple/callback`,
           passReqToCallback: true,
           scope: ['name', 'email'],

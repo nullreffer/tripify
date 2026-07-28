@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const { PrismaClient } = require('@prisma/client');
@@ -7,6 +8,19 @@ const { GEMINI_MODEL } = require('../config/gemini');
 
 const prisma = new PrismaClient();
 const router = express.Router({ mergeParams: true });
+
+const aiGenerateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many AI generation requests. Please slow down.' },
+});
+
+// Constants for route-based stop insertion
+const APPROX_DRIVING_SPEED_KMH = 100;
+const MAX_ROUTE_SAMPLE_POINTS = 10;
 
 // multer: in-memory storage, max 5 MB, accept spreadsheet types only
 const upload = multer({
@@ -573,7 +587,7 @@ router.post('/items', requireAuth, upload.single('file'), async (req, res, next)
 // ── POST /api/import/trip/ai-generate  (AI trip generation from description) ──
 // Stream NDJSON progress like /trip/preview so the frontend can show live status.
 // Handles: basic trip parsing, route-based stop insertion (e.g. "add Costco every 2h").
-router.post('/trip/ai-generate', requireAuth, async (req, res) => {
+router.post('/trip/ai-generate', requireAuth, aiGenerateLimit, async (req, res) => {
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
@@ -707,7 +721,7 @@ Rules:
         const samplePoints = [];
         if (routeReq.intervalHours && routeReq.intervalHours > 0) {
           // Approximate driving speed 100 km/h to turn hours into km intervals
-          const intervalKm = routeReq.intervalHours * 100;
+          const intervalKm = routeReq.intervalHours * APPROX_DRIVING_SPEED_KMH;
           const totalKm = Math.sqrt(
             ((endStop.lat - startStop.lat) * 111) ** 2 +
             ((endStop.lng - startStop.lng) * 111 * Math.cos(startStop.lat * Math.PI / 180)) ** 2
@@ -734,7 +748,7 @@ Rules:
 
         // Query Places API at each sample point
         const insertionStops = [];
-        for (const pt of samplePoints.slice(0, 10)) { // cap at 10 per request
+        for (const pt of samplePoints.slice(0, MAX_ROUTE_SAMPLE_POINTS)) {
           if (!googleKey) break;
           try {
             const body = {

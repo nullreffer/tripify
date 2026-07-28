@@ -1,13 +1,32 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
 
 const router = express.Router();
+
+const aqiTileLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many requests. Please slow down.' },
+});
+
+const aqiPointLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many requests. Please slow down.' },
+});
 
 // GET /api/aqi/tile/:z/:x/:y
 // Proxy for WAQI (World Air Quality Index) map tiles so the API token stays server-side.
 // If AQICN_TOKEN is not configured the endpoint returns 204 so the frontend
 // can gracefully disable the layer.
-router.get('/tile/:z/:x/:y', requireAuth, async (req, res) => {
+router.get('/tile/:z/:x/:y', requireAuth, aqiTileLimit, async (req, res) => {
   const token = process.env.AQICN_TOKEN;
   if (!token) {
     return res.status(204).end();
@@ -40,7 +59,7 @@ router.get('/tile/:z/:x/:y', requireAuth, async (req, res) => {
 // GET /api/aqi/point?lat=&lng=
 // Returns US EPA AQI for a single location using Open-Meteo Air Quality API (no key required).
 // Used as a fallback when no AQICN_TOKEN is configured.
-router.get('/point', requireAuth, async (req, res) => {
+router.get('/point', requireAuth, aqiPointLimit, async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lng = parseFloat(req.query.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -74,7 +93,7 @@ router.get('/point', requireAuth, async (req, res) => {
 });
 
 // GET /api/aqi/status — lets the frontend know whether tiles are available
-router.get('/status', requireAuth, (_req, res) => {
+router.get('/status', requireAuth, aqiPointLimit, (_req, res) => {
   res.json({ tilesAvailable: !!process.env.AQICN_TOKEN });
 });
 
