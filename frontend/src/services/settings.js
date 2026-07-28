@@ -6,6 +6,7 @@ export const DEFAULTS = {
   orientation: 'portrait', // 'portrait' | 'auto'
   pinTapZoom: 15,          // zoom level when tapping a pin (10–18)
   offlineRadiusMi: 5,      // radius in miles for offline tile download
+  searchRadiusMi: 100,     // radius in miles for map area search
 };
 
 export function getSettings() {

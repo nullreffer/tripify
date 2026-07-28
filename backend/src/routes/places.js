@@ -20,8 +20,8 @@ const placesRateLimit = rateLimit({
 
 const METERS_PER_DEGREE_LATITUDE = 111320;
 const MIN_COSINE_FOR_LNG_CALCULATION = 0.2;
-// Hard cap: 100 miles in meters — prevents slow global searches on zoomed-out maps
-const MAX_SEARCH_RADIUS_METERS = 160934;
+// Hard cap: 200 miles in meters — generous upper bound while still preventing runaway global searches
+const MAX_SEARCH_RADIUS_METERS = 321869;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -53,9 +53,9 @@ function estimateViewportRadiusMeters(north, south, east, west) {
 }
 
 // Build a locationRestriction (hard circle limit) centred on the provided point.
-// Uses the map centre passed by the client (lat/lng) when available, falling back
-// to the viewport centre — always capped at the 100-mile radius.
-function buildLocationRestriction({ north, south, east, west, lat, lng }) {
+// Uses the map centre passed by the client (lat/lng) and the explicit radius when provided,
+// falling back to viewport estimation — always capped at the max radius.
+function buildLocationRestriction({ north, south, east, west, lat, lng, radius }) {
   const centerLat = parseLatitude(lat);
   const centerLng = normalizeLongitude(lng);
 
@@ -66,14 +66,18 @@ function buildLocationRestriction({ north, south, east, west, lat, lng }) {
 
   // Prefer the explicit map centre passed by the client
   if (centerLat != null && centerLng != null) {
-    let radius = MAX_SEARCH_RADIUS_METERS;
-    if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
-      radius = estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum);
+    // Use the client-provided radius if valid, otherwise fall back to viewport estimation
+    let searchRadius = MAX_SEARCH_RADIUS_METERS;
+    const clientRadius = Number.parseFloat(radius);
+    if (Number.isFinite(clientRadius) && clientRadius > 0) {
+      searchRadius = clamp(Math.round(clientRadius), 5000, MAX_SEARCH_RADIUS_METERS);
+    } else if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
+      searchRadius = estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum);
     }
     return {
       circle: {
         center: { latitude: centerLat, longitude: centerLng },
-        radius,
+        radius: searchRadius,
       },
     };
   }
@@ -194,14 +198,14 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
     console.warn('Places search skipped: GOOGLE_PLACES_API_KEY is not configured');
     return res.json([]);
   }
-  const { q, north, south, east, west, lat, lng } = req.query;
+  const { q, north, south, east, west, lat, lng, radius } = req.query;
   if (!q?.trim()) return res.status(400).json({ error: 'q is required' });
 
   try {
     const body = { textQuery: q.trim(), maxResultCount: 20 };
-    // Use locationRestriction (hard circle limit ≤ 100 mi) instead of locationBias
+    // Use locationRestriction (hard circle limit) instead of locationBias
     // so the API never searches a huge area on zoomed-out maps.
-    const locationRestriction = buildLocationRestriction({ north, south, east, west, lat, lng });
+    const locationRestriction = buildLocationRestriction({ north, south, east, west, lat, lng, radius });
     if (locationRestriction) body.locationRestriction = locationRestriction;
 
     const response = await fetch(`${PLACES_NEW_BASE}:searchText`, {
