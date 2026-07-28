@@ -3,6 +3,36 @@ import { mergeResults } from './poiUtils.js';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+// ── Client-side result cache ─────────────────────────────────────────────────
+// Keyed by (query + rounded center). Entries expire after 5 minutes.
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 100;
+const searchCache = new Map();
+
+function cacheKey(query, center) {
+  const q = query.toLowerCase().trim();
+  if (!center) return q;
+  // Round to 0.1° so nearby map positions share the same cache entry
+  const lat = Math.round(center.lat * 10) / 10;
+  const lng = Math.round(center.lng * 10) / 10;
+  return `${q}:${lat}:${lng}`;
+}
+
+function getCached(key) {
+  const hit = searchCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > CACHE_TTL_MS) { searchCache.delete(key); return null; }
+  return hit.data;
+}
+
+function setCached(key, data) {
+  if (searchCache.size >= MAX_CACHE_ENTRIES) {
+    // Evict the oldest entry
+    searchCache.delete(searchCache.keys().next().value);
+  }
+  searchCache.set(key, { data, ts: Date.now() });
+}
+
 export async function searchLocations(query) {
   if (!query?.trim()) return [];
   try {
@@ -32,6 +62,10 @@ export async function searchLocations(query) {
 export async function searchNearby(query, center, radiusMeters = 160934) {
   if (!query?.trim()) return [];
 
+  const key = cacheKey(query, center);
+  const cached = getCached(key);
+  if (cached) return cached;
+
   const [osmResult, googleResult] = await Promise.allSettled([
     osmSearchNearby(query, center, radiusMeters),
     googlePlacesSearch(query, center, radiusMeters),
@@ -40,14 +74,16 @@ export async function searchNearby(query, center, radiusMeters = 160934) {
   const osm = osmResult.status === 'fulfilled' ? osmResult.value : [];
   const google = googleResult.status === 'fulfilled' ? googleResult.value : [];
 
-  return mergeResults(osm, google);
+  const results = mergeResults(osm, google);
+  setCached(key, results);
+  return results;
 }
 
+// Run Overpass and Nominatim in parallel so neither blocks the other.
+// Previously they ran serially (Overpass then Nominatim fallback), which
+// could take 12 s + 8 s = 20 s in the worst case.
 async function osmSearchNearby(query, center, radiusMeters) {
   if (center?.lat != null && center?.lng != null) {
-    const overpass = await searchOverpass(query, center, radiusMeters);
-    if (overpass.length > 0) return overpass;
-    // Derive a bbox from center + radius for Nominatim fallback
     const degLat = radiusMeters / 111320;
     const degLng = radiusMeters / (111320 * Math.max(0.1, Math.cos(center.lat * Math.PI / 180)));
     const bounds = {
@@ -56,7 +92,17 @@ async function osmSearchNearby(query, center, radiusMeters) {
       east: center.lng + degLng,
       west: center.lng - degLng,
     };
-    return searchNominatimViewbox(query, bounds);
+
+    const [overpassResult, nominatimResult] = await Promise.allSettled([
+      searchOverpass(query, center, radiusMeters),
+      searchNominatimViewbox(query, bounds),
+    ]);
+
+    const overpass = overpassResult.status === 'fulfilled' ? overpassResult.value : [];
+    const nominatim = nominatimResult.status === 'fulfilled' ? nominatimResult.value : [];
+
+    // Prefer Overpass results; add unique Nominatim results that weren't found by Overpass
+    return mergeResults(nominatim, overpass);
   }
   return searchNominatimViewbox(query, null);
 }
@@ -88,18 +134,18 @@ async function searchOverpass(query, center, radiusMeters) {
     // within a circle around the map center
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const around = `around:${Math.round(radiusMeters)},${center.lat},${center.lng}`;
-    const ql = `[out:json][timeout:20];
+    const ql = `[out:json][timeout:6];
 (
   nwr["name"~"${escaped}",i](${around});
   nwr["brand"~"${escaped}",i](${around});
   nwr["operator"~"${escaped}",i](${around});
 );
-out center 30;`;
+out center 20;`;
     const res = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       body: ql,
       headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Azitrip/1.0' },
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(7000),
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -147,7 +193,7 @@ async function searchNominatimViewbox(query, bounds) {
     }
     const res = await fetch(
       `${NOMINATIM}/search?${params}`,
-      { headers: { 'Accept-Language': 'en', 'User-Agent': 'Azitrip/1.0' }, signal: AbortSignal.timeout(8000) }
+      { headers: { 'Accept-Language': 'en', 'User-Agent': 'Azitrip/1.0' }, signal: AbortSignal.timeout(5000) }
     );
     if (!res.ok) return [];
     const results = await res.json();

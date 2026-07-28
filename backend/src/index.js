@@ -22,6 +22,7 @@ const placesRoutes = require('./routes/places');
 const aqiRoutes = require('./routes/aqi');
 const adminRoutes = require('./routes/admin');
 const { router: notificationRoutes } = require('./routes/notifications');
+const { requestMetrics } = require('./middleware/metrics');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -72,6 +73,9 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Collect request metrics for the admin health dashboard
+app.use(requestMetrics);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

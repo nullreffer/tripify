@@ -2,6 +2,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
+const { getSnapshot } = require('../middleware/metrics');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -96,6 +97,11 @@ router.post('/approvals/:userId/approve', async (req, res, next) => {
     }
     next(err);
   }
+});
+
+// GET /api/admin/health — in-memory service health metrics (resets on restart)
+router.get('/health', (_req, res) => {
+  res.json(getSnapshot());
 });
 
 module.exports = router;

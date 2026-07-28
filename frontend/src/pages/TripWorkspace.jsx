@@ -52,6 +52,44 @@ function resolveMapStyle(setting) {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
+// Build a 5×5 grid of lat/lng sample points covering the bounding box of all stops.
+// Returns the grid points and an adaptive circle radius that ensures the circles
+// from adjacent grid points overlap, saturating the whole map with AQI colour.
+const AQI_GRID_ROWS = 5;
+const AQI_GRID_COLS = 5;
+function generateAqiGrid(stops) {
+  if (!stops.length) return { points: [], radiusMeters: 50000 };
+  const lats = stops.map(s => s.lat);
+  const lngs = stops.map(s => s.lng);
+  let minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  let minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  // Ensure a minimum bounding-box span so single-stop trips get reasonable coverage
+  const MIN_SPAN = 0.5; // degrees
+  if (maxLat - minLat < MIN_SPAN) { const m = (minLat + maxLat) / 2; minLat = m - MIN_SPAN / 2; maxLat = m + MIN_SPAN / 2; }
+  if (maxLng - minLng < MIN_SPAN) { const m = (minLng + maxLng) / 2; minLng = m - MIN_SPAN / 2; maxLng = m + MIN_SPAN / 2; }
+  // Pad the bounding box by 15% on each side
+  const latPad = (maxLat - minLat) * 0.15;
+  const lngPad = (maxLng - minLng) * 0.15;
+  const lat0 = Math.max(-85, minLat - latPad);
+  const lat1 = Math.min(85, maxLat + latPad);
+  const lng0 = minLng - lngPad;
+  const lng1 = maxLng + lngPad;
+  // Radius large enough that adjacent circle edges overlap (80% of cell spacing)
+  const midLat = (lat0 + lat1) / 2;
+  const cellLatM = ((lat1 - lat0) / (AQI_GRID_ROWS - 1)) * 111320;
+  const cellLngM = ((lng1 - lng0) / (AQI_GRID_COLS - 1)) * 111320 * Math.cos(midLat * Math.PI / 180);
+  const radiusMeters = Math.ceil(Math.max(cellLatM, cellLngM) * 0.8);
+  const points = [];
+  for (let r = 0; r < AQI_GRID_ROWS; r++) {
+    for (let c = 0; c < AQI_GRID_COLS; c++) {
+      const lat = lat0 + (lat1 - lat0) * (r / (AQI_GRID_ROWS - 1));
+      const lng = lng0 + (lng1 - lng0) * (c / (AQI_GRID_COLS - 1));
+      points.push({ id: `aqigrid-${r}-${c}`, lat, lng });
+    }
+  }
+  return { points, radiusMeters };
+}
+
 export default function TripWorkspace() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -88,7 +126,8 @@ export default function TripWorkspace() {
   const [offlinePreparing, setOfflinePreparing] = useState(false);
   const [offlineStatus, setOfflineStatus] = useState('');
   const [aiPromptRequest, setAiPromptRequest] = useState(null);
-  const [aqiByStopId, setAqiByStopId] = useState({});
+  const [aqiGridData, setAqiGridData] = useState({});       // gridPointId → {aqi, pm2_5, pm10, lat, lng}
+  const [aqiGridRadiusMeters, setAqiGridRadiusMeters] = useState(50000);
   const [aqiTilesAvailable, setAqiTilesAvailable] = useState(false);
   const [aqiLoading, setAqiLoading] = useState(false);
   const [mapAqiModal, setMapAqiModal] = useState(null);
@@ -258,6 +297,8 @@ export default function TripWorkspace() {
   }, [routeStops]);
 
   // ── AQI data loading (only when aqi layer is active) ────────────────────────
+  // Samples a 5×5 grid over the trip bounding box so the whole map is
+  // covered by AQI colour circles, not just the individual stop locations.
   useEffect(() => {
     if (mapLayer !== 'aqi') return;
     let cancelled = false;
@@ -267,18 +308,22 @@ export default function TripWorkspace() {
       if (!cancelled) setAqiTilesAvailable(s.tilesAvailable);
     });
 
-    if (routeStops.length === 0) { setAqiByStopId({}); return; }
+    if (routeStops.length === 0) { setAqiGridData({}); return; }
+
+    const { points, radiusMeters } = generateAqiGrid(routeStops);
+    if (!cancelled) setAqiGridRadiusMeters(radiusMeters);
+
     (async () => {
       setAqiLoading(true);
-      const entries = await Promise.all(routeStops.map(async (stop) => {
-        if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return [stop.id, null];
+      const entries = await Promise.all(points.map(async (pt) => {
         try {
-          const data = await getAqiForStop(stop.lat, stop.lng);
-          return [stop.id, data];
-        } catch { return [stop.id, null]; }
+          const data = await getAqiForStop(pt.lat, pt.lng);
+          if (data?.aqi == null) return null;
+          return [pt.id, { aqi: data.aqi, pm2_5: data.pm2_5, pm10: data.pm10, lat: pt.lat, lng: pt.lng }];
+        } catch { return null; }
       }));
       if (cancelled) return;
-      setAqiByStopId(Object.fromEntries(entries.filter(([, d]) => d?.aqi != null)));
+      setAqiGridData(Object.fromEntries(entries.filter(Boolean)));
       setAqiLoading(false);
     })();
     return () => { cancelled = true; };
@@ -540,21 +585,16 @@ export default function TripWorkspace() {
 
   const aqiPins = useMemo(() => {
     if (mapLayer !== 'aqi') return [];
-    return routeStops.map(stop => {
-      const data = aqiByStopId[stop.id];
-      if (!data?.aqi) return null;
-      return {
-        id: `aqi-${stop.id}`,
-        stopId: stop.id,
-        lat: stop.lat,
-        lng: stop.lng,
-        aqi: data.aqi,
-        level: aqiMeta(data.aqi),
-        pm2_5: data.pm2_5,
-        pm10: data.pm10,
-      };
-    }).filter(Boolean);
-  }, [mapLayer, routeStops, aqiByStopId]);
+    return Object.values(aqiGridData).map(entry => ({
+      id: `aqigrid-${entry.lat}-${entry.lng}`,
+      lat: entry.lat,
+      lng: entry.lng,
+      aqi: entry.aqi,
+      level: aqiMeta(entry.aqi),
+      pm2_5: entry.pm2_5,
+      pm10: entry.pm10,
+    }));
+  }, [mapLayer, aqiGridData]);
 
   // Stops that have been downloaded for offline use
   const offlinePins = useMemo(() => {
@@ -798,6 +838,7 @@ export default function TripWorkspace() {
             offlineRadiusMeters={(settings.offlineRadiusMi ?? 5) * MI_TO_METERS}
             aqiPins={aqiPins}
             aqiTilesAvailable={aqiTilesAvailable}
+            aqiOverlayRadiusMeters={aqiGridRadiusMeters}
             onAqiPinClick={pin => {
               setMapAqiModal({
                 loading: false,

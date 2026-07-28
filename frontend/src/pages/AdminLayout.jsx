@@ -22,6 +22,12 @@ function AdminLayout() {
             >
               Approvals
             </NavLink>
+            <NavLink
+              to="/admin/health"
+              className={({ isActive }) => `admin-tab${isActive ? ' admin-tab-active' : ''}`}
+            >
+              Health
+            </NavLink>
           </div>
         </div>
 
