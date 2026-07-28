@@ -93,6 +93,96 @@ function makeWeatherIcon(emoji, tempLabel) {
 // Overridden at runtime by an adaptive value computed from the trip bounding box.
 const AQI_OVERLAY_RADIUS_METERS_DEFAULT = 50000;
 
+// ── AQI gradient helpers ──────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  const v = hex.replace('#', '');
+  return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
+}
+
+// Render the AQI pin grid as a bilinearly-interpolated colour gradient on an
+// off-screen canvas, then mount it as a Leaflet imageOverlay. This replaces the
+// previous approach of rendering overlapping Circle elements.
+function AqiGradientOverlay({ pins }) {
+  const map = useMap();
+  const layerRef = useRef(null);
+
+  useEffect(() => {
+    // Always remove the previous overlay before (re-)adding
+    if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
+    if (!pins.length) return;
+
+    // Reconstruct grid from pin coordinates
+    const eps = 0.0001;
+    const uniqueLats = [...new Set(pins.map(p => Math.round(p.lat / eps) * eps))].sort((a, b) => a - b);
+    const uniqueLngs = [...new Set(pins.map(p => Math.round(p.lng / eps) * eps))].sort((a, b) => a - b);
+    const rows = uniqueLats.length;
+    const cols = uniqueLngs.length;
+    if (rows < 2 || cols < 2) return;
+
+    // Build color grid [row][col] → [r, g, b], row 0 = minLat
+    const fallback = [136, 136, 136];
+    const colorGrid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => fallback));
+    pins.forEach(pin => {
+      const row = uniqueLats.findIndex(v => Math.abs(v - pin.lat) < eps * 2);
+      const col = uniqueLngs.findIndex(v => Math.abs(v - pin.lng) < eps * 2);
+      if (row !== -1 && col !== -1 && pin.level?.color) {
+        colorGrid[row][col] = hexToRgb(pin.level.color);
+      }
+    });
+
+    const minLat = uniqueLats[0], maxLat = uniqueLats[rows - 1];
+    const minLng = uniqueLngs[0], maxLng = uniqueLngs[cols - 1];
+
+    // Render gradient on a canvas using bilinear interpolation
+    const W = 512, H = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(W, H);
+    const d = imageData.data;
+
+    for (let py = 0; py < H; py++) {
+      // Canvas y=0 is north (maxLat), y=H-1 is south (minLat)
+      const lat = maxLat - (maxLat - minLat) * (py / (H - 1));
+      const rowF = ((lat - minLat) / (maxLat - minLat)) * (rows - 1);
+      const row0 = Math.max(0, Math.min(rows - 2, Math.floor(rowF)));
+      const ty = rowF - row0;
+
+      for (let px = 0; px < W; px++) {
+        const lng = minLng + (maxLng - minLng) * (px / (W - 1));
+        const colF = ((lng - minLng) / (maxLng - minLng)) * (cols - 1);
+        const col0 = Math.max(0, Math.min(cols - 2, Math.floor(colF)));
+        const tx = colF - col0;
+
+        // Bilinear interpolation between the four surrounding grid cells
+        const bl = colorGrid[row0][col0];
+        const br = colorGrid[row0][col0 + 1];
+        const tl = colorGrid[row0 + 1][col0];
+        const tr = colorGrid[row0 + 1][col0 + 1];
+        const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+
+        const i = (py * W + px) * 4;
+        d[i]     = Math.round(bl[0] * w00 + br[0] * w10 + tl[0] * w01 + tr[0] * w11);
+        d[i + 1] = Math.round(bl[1] * w00 + br[1] * w10 + tl[1] * w01 + tr[1] * w11);
+        d[i + 2] = Math.round(bl[2] * w00 + br[2] * w10 + tl[2] * w01 + tr[2] * w11);
+        d[i + 3] = 110; // ~43% opacity
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    const bounds = L.latLngBounds([[minLat, minLng], [maxLat, maxLng]]);
+    const overlay = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 1, interactive: false });
+    overlay.addTo(map);
+    layerRef.current = overlay;
+
+    return () => {
+      if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
+    };
+  }, [pins, map]);
+
+  return null;
+}
+
 // Exposes imperative map control methods to parent via ref
 // Approximate meters per degree of latitude at mid-latitudes
 const METERS_PER_DEGREE = 111_000;
@@ -376,21 +466,10 @@ const TripMap = forwardRef(function TripMap(
           />
         ))}
 
-        {/* AQI color overlay circles (when tile overlay is unavailable) */}
-        {isAqiLayer && !aqiTilesAvailable && aqiPins.map(pin => (
-          <Circle
-            key={`aqi-area-${pin.id}`}
-            center={[pin.lat, pin.lng]}
-            radius={aqiOverlayRadiusMeters}
-            pathOptions={{
-              color: pin.level?.color || '#888',
-              fillColor: pin.level?.color || '#888',
-              fillOpacity: 0.3,
-              weight: 0,
-            }}
-            eventHandlers={onAqiPinClick ? { click: () => onAqiPinClick(pin) } : {}}
-          />
-        ))}
+        {/* AQI gradient overlay (when tile overlay is unavailable) */}
+        {isAqiLayer && !aqiTilesAvailable && (
+          <AqiGradientOverlay pins={aqiPins} />
+        )}
       </MapContainer>
 
       {/* AQI legend */}
