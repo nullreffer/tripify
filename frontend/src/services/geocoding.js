@@ -5,6 +5,8 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // ── Client-side result cache ─────────────────────────────────────────────────
 // Keyed by (query + rounded center). Entries expire after 5 minutes.
+// Bounded to MAX_CACHE_ENTRIES to cap memory; oldest-inserted entry is evicted
+// when the limit is reached (Maps preserve insertion order).
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 100;
 const searchCache = new Map();

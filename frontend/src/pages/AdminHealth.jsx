@@ -23,8 +23,10 @@ function statusColor(code) {
   return { background: 'var(--border)', color: 'var(--text)' };
 }
 
+// Outgoing call success-rate threshold below which the value is coloured red.
+const SUCCESS_RATE_THRESHOLD = 90; // percent
+
 export default function AdminHealth() {
-  const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -162,7 +164,7 @@ export default function AdminHealth() {
                     </td>
                     <td>
                       {rate != null ? (
-                        <span style={{ color: parseFloat(rate) < 90 ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
+                        <span style={{ color: parseFloat(rate) < SUCCESS_RATE_THRESHOLD ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
                           {rate}%
                         </span>
                       ) : '—'}

@@ -49,7 +49,8 @@ function recordOutgoing(service, success, durationMs) {
 
 function percentile(sorted, p) {
   if (!sorted.length) return null;
-  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * p));
+  // Standard 0-based percentile index (ceil formula avoids clamping edge-cases)
+  const idx = Math.min(sorted.length - 1, Math.ceil((sorted.length - 1) * p));
   return sorted[idx];
 }
 
