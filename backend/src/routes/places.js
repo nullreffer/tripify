@@ -1,6 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
+const { recordOutgoing } = require('../middleware/metrics');
 
 const router = express.Router();
 
@@ -172,21 +173,26 @@ router.get('/nearby', placesRateLimit, requireAuth, async (req, res) => {
   if (!lat || !lng) return res.status(400).json({ error: 'lat and lng are required' });
   const type = GOOGLE_PLACE_TYPES[category];
   if (!type) return res.json([]);
+  const t0 = Date.now();
   try {
     const params = new URLSearchParams({ location: `${lat},${lng}`, radius: String(radius), type, key: apiKey });
     const response = await fetch(`${PLACES_BASE}/nearbysearch/json?${params}`, { signal: AbortSignal.timeout(10000) });
     if (!response.ok) {
+      recordOutgoing('googlePlaces', false, Date.now() - t0);
       const err = await response.text().catch(() => '');
       console.error('Places nearby HTTP error:', response.status, category, lat, lng, err);
       return res.json([]);
     }
     const data = await response.json();
     if (data.status && data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      recordOutgoing('googlePlaces', false, Date.now() - t0);
       console.error('Places nearby API error:', data.status, data.error_message || '');
       return res.json([]);
     }
+    recordOutgoing('googlePlaces', true, Date.now() - t0);
     res.json((data.results || []).map(normalizePlace).filter(Boolean).slice(0, 20));
   } catch (err) {
+    recordOutgoing('googlePlaces', false, Date.now() - t0);
     console.error('Places nearby exception:', err.message);
     res.json([]);
   }
@@ -203,6 +209,7 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
   const { q, north, south, east, west, lat, lng, radius } = req.query;
   if (!q?.trim()) return res.status(400).json({ error: 'q is required' });
 
+  const t0 = Date.now();
   try {
     const body = { textQuery: q.trim(), maxResultCount: 20 };
     // Use locationRestriction (hard circle limit) instead of locationBias
@@ -235,11 +242,13 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
     });
 
     if (!response.ok) {
+      recordOutgoing('googlePlaces', false, Date.now() - t0);
       const err = await response.text().catch(() => '');
       console.error('Places search API error:', response.status, q, err);
       return res.json([]);
     }
 
+    recordOutgoing('googlePlaces', true, Date.now() - t0);
     const data = await response.json();
     const places = (data.places || []).map(normalizeNewPlace).filter(Boolean);
     if (!places.length) {
@@ -247,6 +256,7 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
     }
     res.json(places);
   } catch (err) {
+    recordOutgoing('googlePlaces', false, Date.now() - t0);
     console.error('Places search exception:', q, err.message);
     res.json([]);
   }

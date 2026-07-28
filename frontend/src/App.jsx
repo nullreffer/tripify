@@ -9,6 +9,7 @@ import PendingApproval from './pages/PendingApproval.jsx';
 import AdminLayout from './pages/AdminLayout.jsx';
 import AdminReports from './pages/AdminReports.jsx';
 import AdminApprovals from './pages/AdminApprovals.jsx';
+import AdminHealth from './pages/AdminHealth.jsx';
 import { getSettings, useSettingsListener } from './services/settings.js';
 
 // ── Google Analytics SPA page-view tracker ──────────────────────────────────
@@ -142,6 +143,7 @@ function App() {
             <Route index element={<Navigate to="reports" replace />} />
             <Route path="reports" element={<AdminReports />} />
             <Route path="approvals" element={<AdminApprovals />} />
+            <Route path="health" element={<AdminHealth />} />
           </Route>
           <Route path="*" element={<Navigate to={user && !isApproved ? '/pending' : '/'} replace />} />
         </Routes>

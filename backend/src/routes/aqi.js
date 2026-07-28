@@ -1,6 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
+const { recordOutgoing } = require('../middleware/metrics');
 
 const router = express.Router();
 
@@ -42,10 +43,13 @@ router.get('/tile/:z/:x/:y', aqiTileLimit, requireAuth, async (req, res) => {
 
   try {
     const url = `https://tiles.aqicn.org/tiles/usepa-aqi/${zn}/${xn}/${yn}.png?token=${token}`;
+    const t0 = Date.now();
     const upstream = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!upstream.ok) {
+      recordOutgoing('aqicn', false, Date.now() - t0);
       return res.status(upstream.status).end();
     }
+    recordOutgoing('aqicn', true, Date.now() - t0);
     const buffer = await upstream.arrayBuffer();
     res.set('Content-Type', upstream.headers.get('content-type') || 'image/png');
     res.set('Cache-Control', 'public, max-age=3600');
@@ -72,13 +76,16 @@ router.get('/point', aqiPointLimit, requireAuth, async (req, res) => {
       current: 'us_aqi,pm2_5,pm10',
       timezone: 'auto',
     });
+    const t0 = Date.now();
     const upstream = await fetch(
       `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`,
       { signal: AbortSignal.timeout(8000) }
     );
     if (!upstream.ok) {
+      recordOutgoing('openMeteo', false, Date.now() - t0);
       return res.status(upstream.status).json({ error: 'Air quality API error' });
     }
+    recordOutgoing('openMeteo', true, Date.now() - t0);
     const data = await upstream.json();
     const aqi = data?.current?.us_aqi;
     res.json({

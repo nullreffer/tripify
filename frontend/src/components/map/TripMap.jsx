@@ -89,8 +89,9 @@ function makeWeatherIcon(emoji, tempLabel) {
   return L.divIcon({ html, className: '', iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -32] });
 }
 
-// Radius (meters) of each AQI color overlay circle when tile overlay is unavailable
-const AQI_OVERLAY_RADIUS_METERS = 50000;
+// Radius (meters) of each AQI color overlay circle when tile overlay is unavailable.
+// Overridden at runtime by an adaptive value computed from the trip bounding box.
+const AQI_OVERLAY_RADIUS_METERS_DEFAULT = 50000;
 
 // Exposes imperative map control methods to parent via ref
 // Approximate meters per degree of latitude at mid-latitudes
@@ -226,7 +227,8 @@ const TripMap = forwardRef(function TripMap(
     weatherPins = [], completedFraction = 0, onMapTap,
     hideStopPins = false, onWeatherPinClick,
     offlinePins = [], offlineRadiusMeters = 8047,
-    aqiPins = [], onAqiPinClick, aqiTilesAvailable = false },
+    aqiPins = [], onAqiPinClick, aqiTilesAvailable = false,
+    aqiOverlayRadiusMeters = AQI_OVERLAY_RADIUS_METERS_DEFAULT },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -379,7 +381,7 @@ const TripMap = forwardRef(function TripMap(
           <Circle
             key={`aqi-area-${pin.id}`}
             center={[pin.lat, pin.lng]}
-            radius={AQI_OVERLAY_RADIUS_METERS}
+            radius={aqiOverlayRadiusMeters}
             pathOptions={{
               color: pin.level?.color || '#888',
               fillColor: pin.level?.color || '#888',
