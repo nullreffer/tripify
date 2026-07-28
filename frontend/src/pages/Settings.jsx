@@ -112,6 +112,23 @@ export default function Settings() {
                 style={{ width: '120px' }}
               />
             </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>Search radius</span>
+                <span className="settings-row-hint">
+                  How far from the map center to search when using the map area search. Currently: {settings.searchRadiusMi ?? 100} mi
+                </span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={200}
+                step={10}
+                value={settings.searchRadiusMi ?? 100}
+                onChange={e => update('searchRadiusMi', Number(e.target.value))}
+                style={{ width: '120px' }}
+              />
+            </div>
           </div>
 
           <div className="settings-divider" />

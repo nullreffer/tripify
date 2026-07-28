@@ -26,15 +26,15 @@ export async function searchLocations(query) {
   }
 }
 
-// Search for POIs near a given map viewport using Overpass API (much better for chain stores / POIs).
-// Falls back to Nominatim when no bounds available.
+// Search for POIs near a given map center using Overpass API (much better for chain stores / POIs).
+// Falls back to Nominatim when no center available.
 // Also queries Google Places API and merges results.
-export async function searchNearby(query, bounds, center) {
+export async function searchNearby(query, center, radiusMeters = 160934) {
   if (!query?.trim()) return [];
 
   const [osmResult, googleResult] = await Promise.allSettled([
-    osmSearchNearby(query, bounds),
-    googlePlacesSearch(query, bounds, center),
+    osmSearchNearby(query, center, radiusMeters),
+    googlePlacesSearch(query, center, radiusMeters),
   ]);
 
   const osm = osmResult.status === 'fulfilled' ? osmResult.value : [];
@@ -43,28 +43,33 @@ export async function searchNearby(query, bounds, center) {
   return mergeResults(osm, google);
 }
 
-async function osmSearchNearby(query, bounds) {
-  if (bounds) {
-    const overpass = await searchOverpass(query, bounds);
+async function osmSearchNearby(query, center, radiusMeters) {
+  if (center?.lat != null && center?.lng != null) {
+    const overpass = await searchOverpass(query, center, radiusMeters);
     if (overpass.length > 0) return overpass;
+    // Derive a bbox from center + radius for Nominatim fallback
+    const degLat = radiusMeters / 111320;
+    const degLng = radiusMeters / (111320 * Math.max(0.1, Math.cos(center.lat * Math.PI / 180)));
+    const bounds = {
+      north: center.lat + degLat,
+      south: center.lat - degLat,
+      east: center.lng + degLng,
+      west: center.lng - degLng,
+    };
     return searchNominatimViewbox(query, bounds);
   }
   return searchNominatimViewbox(query, null);
 }
 
-async function googlePlacesSearch(query, bounds, center) {
+async function googlePlacesSearch(query, center, radiusMeters) {
   try {
     const params = new URLSearchParams({ q: query });
-    if (bounds) {
-      params.set('north', bounds.north);
-      params.set('south', bounds.south);
-      params.set('east', bounds.east);
-      params.set('west', bounds.west);
-    }
-    // Pass the map centre so the backend can anchor the 100-mile search circle there
-    if (center) {
+    if (center?.lat != null && center?.lng != null) {
       params.set('lat', center.lat);
       params.set('lng', center.lng);
+    }
+    if (radiusMeters) {
+      params.set('radius', radiusMeters);
     }
     const res = await fetch(`${API_BASE}/api/places/search?${params}`, {
       credentials: 'include',
@@ -77,17 +82,17 @@ async function googlePlacesSearch(query, bounds, center) {
   }
 }
 
-async function searchOverpass(query, bounds) {
+async function searchOverpass(query, center, radiusMeters) {
   try {
-    // Overpass bbox: south,west,north,east
-    const bbox = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
     // Search for nodes, ways, and relations matching the name (case-insensitive regex)
+    // within a circle around the map center
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const around = `around:${Math.round(radiusMeters)},${center.lat},${center.lng}`;
     const ql = `[out:json][timeout:20];
 (
-  nwr["name"~"${escaped}",i](${bbox});
-  nwr["brand"~"${escaped}",i](${bbox});
-  nwr["operator"~"${escaped}",i](${bbox});
+  nwr["name"~"${escaped}",i](${around});
+  nwr["brand"~"${escaped}",i](${around});
+  nwr["operator"~"${escaped}",i](${around});
 );
 out center 30;`;
     const res = await fetch('https://overpass-api.de/api/interpreter', {

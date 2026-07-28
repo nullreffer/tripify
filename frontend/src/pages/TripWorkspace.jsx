@@ -330,14 +330,10 @@ export default function TripWorkspace() {
     if (val.length < 2) { setMapSearchResults([]); return; }
     mapSearchDebounce.current = setTimeout(async () => {
       setMapSearching(true);
-      const bounds = mapRef.current?.getBounds();
       const mapCenter = mapRef.current?.getCenter();
-      const leafletBounds = bounds ? {
-        north: bounds.getNorth(), south: bounds.getSouth(),
-        east:  bounds.getEast(),  west:  bounds.getWest(),
-      } : null;
       const center = mapCenter ? { lat: mapCenter.lat, lng: mapCenter.lng } : null;
-      const results = await searchNearby(val, leafletBounds, center);
+      const radiusMeters = (getSettings().searchRadiusMi ?? 100) * MI_TO_METERS;
+      const results = await searchNearby(val, center, radiusMeters);
       setMapSearchResults(results);
       mapRef.current?.ensureSearchResultVisible(results);
       setMapSearching(false);
@@ -367,7 +363,7 @@ export default function TripWorkspace() {
     return 'GENERAL';
   }
 
-  const handleAddSearchPin = useCallback(async (pin) => {
+  const handleAddSearchPin = useCallback(async (pin, mode = 'afterNearest') => {
     const saveForLater = !!pin?.saveForLater;
     const beforeAdd = [...routeStops]; // snapshot before adding
     const newStop = await tripData.addStop({
@@ -379,16 +375,22 @@ export default function TripWorkspace() {
       notes: '',
       metadata: saveForLater ? { savedForLater: true } : undefined,
     });
-    // Insert after nearest existing stop
     if (!saveForLater && beforeAdd.length > 0 && newStop) {
-      const nearestIdx = beforeAdd.reduce((best, s, i) => {
-        const d = Math.hypot(s.lat - pin.lat, s.lng - pin.lng);
-        return d < best.d ? { i, d } : best;
-      }, { i: 0, d: Infinity }).i;
+      let insertAfterIdx;
+      if (mode === 'next') {
+        // Insert after the last reached stop; -1 means none reached, so insertAfterIdx + 1 = 0 (front of list)
+        insertAfterIdx = beforeAdd.reduce((acc, s, i) => s.reached ? i : acc, -1);
+      } else {
+        const nearestIdx = beforeAdd.reduce((best, s, i) => {
+          const d = Math.hypot(s.lat - pin.lat, s.lng - pin.lng);
+          return d < best.d ? { i, d } : best;
+        }, { i: 0, d: Infinity }).i;
+        insertAfterIdx = mode === 'beforeNearest' ? nearestIdx - 1 : nearestIdx;
+      }
       const newOrder = [
-        ...beforeAdd.slice(0, nearestIdx + 1),
+        ...beforeAdd.slice(0, insertAfterIdx + 1),
         newStop,
-        ...beforeAdd.slice(nearestIdx + 1),
+        ...beforeAdd.slice(insertAfterIdx + 1),
       ];
       await tripData.reorderStops([...newOrder, ...savedStops]);
     }
@@ -931,18 +933,32 @@ export default function TripWorkspace() {
               {selectedSearchPin.extratags?.website && (
                 <div className="ws-spc-detail">🌐 <a href={selectedSearchPin.extratags.website} target="_blank" rel="noopener noreferrer">Website</a></div>
               )}
-              <button
-                className="btn-primary ws-spc-add"
-                onClick={() => handleAddSearchPin(selectedSearchPin)}
-              >
-                + Add to Route
-              </button>
-              <button
-                className="btn-secondary ws-spc-add"
-                onClick={() => handleAddSearchPin({ ...selectedSearchPin, saveForLater: true })}
-              >
-                🔖 Save for later
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                <button
+                  className="btn-primary ws-spc-add"
+                  onClick={() => handleAddSearchPin(selectedSearchPin, 'next')}
+                >
+                  ↑ Add as next stop
+                </button>
+                <button
+                  className="btn-primary ws-spc-add"
+                  onClick={() => handleAddSearchPin(selectedSearchPin, 'afterNearest')}
+                >
+                  + Add after nearest pin
+                </button>
+                <button
+                  className="btn-primary ws-spc-add"
+                  onClick={() => handleAddSearchPin(selectedSearchPin, 'beforeNearest')}
+                >
+                  ↓ Add before nearest pin
+                </button>
+                <button
+                  className="btn-secondary ws-spc-add"
+                  onClick={() => handleAddSearchPin({ ...selectedSearchPin, saveForLater: true })}
+                >
+                  🔖 Save for later
+                </button>
+              </div>
             </div>
           )}
           {weatherLoading && ['weather-current', 'weather-scheduled'].includes(mapLayer) && (

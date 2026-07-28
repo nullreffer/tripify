@@ -4,7 +4,6 @@ import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import { PIN_TYPES } from '../../constants/pinTypes.js';
 import { getLocationGroupKey } from '../../constants/map.js';
-import { AQI_LEVELS } from '../../services/aqi.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -90,18 +89,8 @@ function makeWeatherIcon(emoji, tempLabel) {
   return L.divIcon({ html, className: '', iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -32] });
 }
 
-function makeAqiIcon(aqi, level) {
-  const color = level?.color || '#888';
-  const textColor = level?.textColor || '#fff';
-  const html = `<div style="
-    min-width:38px;height:28px;border-radius:14px;
-    background:${color};color:${textColor};
-    border:2px solid rgba(255,255,255,0.8);box-shadow:0 2px 8px rgba(0,0,0,.35);
-    display:flex;align-items:center;justify-content:center;
-    font-size:11px;font-weight:700;padding:0 7px;gap:2px;
-  ">🌫 ${aqi}</div>`;
-  return L.divIcon({ html, className: '', iconSize: [38, 28], iconAnchor: [19, 28], popupAnchor: [0, -30] });
-}
+// Radius (meters) of each AQI color overlay circle when tile overlay is unavailable
+const AQI_OVERLAY_RADIUS_METERS = 50000;
 
 // Exposes imperative map control methods to parent via ref
 // Approximate meters per degree of latitude at mid-latitudes
@@ -385,12 +374,18 @@ const TripMap = forwardRef(function TripMap(
           />
         ))}
 
-        {/* AQI pins (shown when tile overlay is unavailable or as supplement) */}
-        {isAqiLayer && aqiPins.map(pin => (
-          <Marker
-            key={`aqi-${pin.id}`}
-            position={[pin.lat, pin.lng]}
-            icon={makeAqiIcon(pin.aqi, pin.level)}
+        {/* AQI color overlay circles (when tile overlay is unavailable) */}
+        {isAqiLayer && !aqiTilesAvailable && aqiPins.map(pin => (
+          <Circle
+            key={`aqi-area-${pin.id}`}
+            center={[pin.lat, pin.lng]}
+            radius={AQI_OVERLAY_RADIUS_METERS}
+            pathOptions={{
+              color: pin.level?.color || '#888',
+              fillColor: pin.level?.color || '#888',
+              fillOpacity: 0.3,
+              weight: 0,
+            }}
             eventHandlers={onAqiPinClick ? { click: () => onAqiPinClick(pin) } : {}}
           />
         ))}
@@ -404,13 +399,18 @@ const TripMap = forwardRef(function TripMap(
           boxShadow: '0 2px 8px rgba(0,0,0,0.4)', fontSize: '11px', color: '#fff',
           pointerEvents: 'none',
         }}>
-          <div style={{ fontWeight: 700, marginBottom: '5px' }}>🌫 Air Quality Index</div>
-          {AQI_LEVELS.map(l => (
-            <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '2px' }}>
-              <div style={{ width: 12, height: 12, borderRadius: 3, background: l.color, border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
-              <span>{l.label}</span>
-            </div>
-          ))}
+          <div style={{ fontWeight: 700, marginBottom: '6px' }}>🌫 Air Quality Index</div>
+          <div style={{
+            height: 10, borderRadius: 5,
+            background: 'linear-gradient(to right, #00e400, #ffff00, #ff7e00, #ff0000, #8f3f97, #7e0023)',
+            marginBottom: 4, border: '1px solid rgba(255,255,255,0.2)',
+          }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', opacity: 0.8 }}>
+            <span>Good</span>
+            <span>Moderate</span>
+            <span>Unhealthy</span>
+            <span>Hazardous</span>
+          </div>
         </div>
       )}
     </div>
