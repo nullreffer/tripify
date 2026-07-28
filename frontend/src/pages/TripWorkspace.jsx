@@ -5,6 +5,7 @@ import { getRoute, formatDistance, formatDuration } from '../services/routing.js
 import { getSettings, useSettingsListener } from '../services/settings.js';
 import { searchNearby } from '../services/geocoding.js';
 import { getWeather, buildCurrentWeather, buildScheduledDayWeather } from '../services/weather.js';
+import { getAqiStatus, getAqiForStop, aqiMeta } from '../services/aqi.js';
 import TripMap from '../components/map/TripMap.jsx';
 import StopList from '../components/stops/StopList.jsx';
 import StopSheet from '../components/stops/StopSheet.jsx';
@@ -41,6 +42,7 @@ const MAP_LAYER_OPTIONS = [
   ['trails', '🥾 Trails'],
   ['weather-current', '🌤️ Current weather'],
   ['weather-scheduled', '🗓️ Scheduled-day weather'],
+  ['aqi', '🌫️ Air Quality'],
   ['offline', '📵 Offline areas'],
 ];
 
@@ -86,6 +88,10 @@ export default function TripWorkspace() {
   const [offlinePreparing, setOfflinePreparing] = useState(false);
   const [offlineStatus, setOfflineStatus] = useState('');
   const [aiPromptRequest, setAiPromptRequest] = useState(null);
+  const [aqiByStopId, setAqiByStopId] = useState({});
+  const [aqiTilesAvailable, setAqiTilesAvailable] = useState(false);
+  const [aqiLoading, setAqiLoading] = useState(false);
+  const [mapAqiModal, setMapAqiModal] = useState(null);
   const mapSearchDebounce = useRef(null);
 
   // Photo prompt after reaching a stop
@@ -251,6 +257,33 @@ export default function TripWorkspace() {
     return () => { cancelled = true; };
   }, [routeStops]);
 
+  // ── AQI data loading (only when aqi layer is active) ────────────────────────
+  useEffect(() => {
+    if (mapLayer !== 'aqi') return;
+    let cancelled = false;
+
+    // Check whether the server has a WAQI token configured for tile overlays
+    getAqiStatus().then(s => {
+      if (!cancelled) setAqiTilesAvailable(s.tilesAvailable);
+    });
+
+    if (routeStops.length === 0) { setAqiByStopId({}); return; }
+    (async () => {
+      setAqiLoading(true);
+      const entries = await Promise.all(routeStops.map(async (stop) => {
+        if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return [stop.id, null];
+        try {
+          const data = await getAqiForStop(stop.lat, stop.lng);
+          return [stop.id, data];
+        } catch { return [stop.id, null]; }
+      }));
+      if (cancelled) return;
+      setAqiByStopId(Object.fromEntries(entries.filter(([, d]) => d?.aqi != null)));
+      setAqiLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [mapLayer, routeStops]);
+
   // ── Map overlay handlers ─────────────────────────────────────────────
   const handleMyLocation = useCallback(() => {
     if (userLocation) {
@@ -298,11 +331,13 @@ export default function TripWorkspace() {
     mapSearchDebounce.current = setTimeout(async () => {
       setMapSearching(true);
       const bounds = mapRef.current?.getBounds();
+      const mapCenter = mapRef.current?.getCenter();
       const leafletBounds = bounds ? {
         north: bounds.getNorth(), south: bounds.getSouth(),
         east:  bounds.getEast(),  west:  bounds.getWest(),
       } : null;
-      const results = await searchNearby(val, leafletBounds);
+      const center = mapCenter ? { lat: mapCenter.lat, lng: mapCenter.lng } : null;
+      const results = await searchNearby(val, leafletBounds, center);
       setMapSearchResults(results);
       mapRef.current?.ensureSearchResultVisible(results);
       setMapSearching(false);
@@ -501,6 +536,24 @@ export default function TripWorkspace() {
     }).filter(Boolean);
   }, [mapLayer, routeStops, weatherByStopId, formatWeatherTemp]);
 
+  const aqiPins = useMemo(() => {
+    if (mapLayer !== 'aqi') return [];
+    return routeStops.map(stop => {
+      const data = aqiByStopId[stop.id];
+      if (!data?.aqi) return null;
+      return {
+        id: `aqi-${stop.id}`,
+        stopId: stop.id,
+        lat: stop.lat,
+        lng: stop.lng,
+        aqi: data.aqi,
+        level: aqiMeta(data.aqi),
+        pm2_5: data.pm2_5,
+        pm10: data.pm10,
+      };
+    }).filter(Boolean);
+  }, [mapLayer, routeStops, aqiByStopId]);
+
   // Stops that have been downloaded for offline use
   const offlinePins = useMemo(() => {
     if (mapLayer !== 'offline') return [];
@@ -539,6 +592,30 @@ export default function TripWorkspace() {
     }
   }, []);
 
+  const handleMapTapAqi = useCallback(async (latlng) => {
+    if (!latlng) return;
+    setMapAqiModal({ loading: true, lat: latlng.lat, lng: latlng.lng });
+    try {
+      const data = await getAqiForStop(latlng.lat, latlng.lng);
+      setMapAqiModal({
+        loading: false,
+        lat: latlng.lat,
+        lng: latlng.lng,
+        aqi: data?.aqi,
+        level: aqiMeta(data?.aqi),
+        pm2_5: data?.pm2_5,
+        pm10: data?.pm10,
+      });
+    } catch {
+      setMapAqiModal({
+        loading: false,
+        lat: latlng.lat,
+        lng: latlng.lng,
+        error: 'Air quality data unavailable for this area.',
+      });
+    }
+  }, []);
+
   const prepareOffline = useCallback(async () => {
     try {
       setOfflinePreparing(true);
@@ -557,11 +634,13 @@ export default function TripWorkspace() {
       const radiusKm = radiusMi * MI_TO_KM;
       const zoomLevels = [8, 10, 12, 14];
       const urls = new Set();
-      for (const stop of allStops) {
+
+      // Helper: add tile URLs for a lat/lng point at all zoom levels
+      const addTilesForPoint = (lat, lng) => {
         for (const z of zoomLevels) {
-          const center = latLngToTile(stop.lat, stop.lng, z);
+          const center = latLngToTile(lat, lng, z);
           // Tile size in km at given zoom and latitude
-          const tileKm = (EARTH_CIRCUMFERENCE_KM * Math.cos((stop.lat * Math.PI) / 180)) / (2 ** z);
+          const tileKm = (EARTH_CIRCUMFERENCE_KM * Math.cos((lat * Math.PI) / 180)) / (2 ** z);
           // Number of tiles to extend in each direction (min 0, enough to cover the radius)
           const tileRadius = tileKm > 0 ? Math.max(0, Math.ceil(radiusKm / tileKm)) : 0;
           // Cap per-zoom radius to avoid runaway downloads at high zooms
@@ -578,6 +657,34 @@ export default function TripWorkspace() {
               // Trails (OpenTopoMap)
               urls.add(`https://a.tile.opentopomap.org/${z}/${tx}/${ty}.png`);
             }
+          }
+        }
+      };
+
+      // Download tiles for every stop (with radius)
+      for (const stop of allStops) {
+        addTilesForPoint(stop.lat, stop.lng);
+      }
+
+      // Also download tiles along the route geometry so in-between sections work offline.
+      // Sample a point every ~25 km along the polyline to cover corridor between stops.
+      if (route?.geometry?.coordinates?.length > 1) {
+        setOfflineStatus('Downloading route corridor tiles…');
+        const coords = route.geometry.coordinates; // [lng, lat] pairs
+        const SAMPLE_KM = 25;
+        const METERS_PER_DEG = 111_000;
+        let distSinceLast = SAMPLE_KM * 1000; // force first point to be sampled
+        for (let i = 1; i < coords.length; i++) {
+          const [lng, lat] = coords[i];
+          const [plng, plat] = coords[i - 1];
+          const segMeters = Math.sqrt(
+            ((lat - plat) * METERS_PER_DEG) ** 2 +
+            ((lng - plng) * METERS_PER_DEG * Math.cos(lat * Math.PI / 180)) ** 2
+          );
+          distSinceLast += segMeters;
+          if (distSinceLast >= SAMPLE_KM * 1000) {
+            addTilesForPoint(lat, lng);
+            distSinceLast = 0;
           }
         }
       }
@@ -608,7 +715,7 @@ export default function TripWorkspace() {
         estimatedSizeMB: Math.round((totalUrls * 15) / 1024 * 10) / 10,
       };
       localStorage.setItem(`tripify-offline-${id}`, JSON.stringify(snapshot));
-      setOfflineStatus(`Downloaded ~${totalUrls} tiles (${radiusMi} mi radius) across normal, satellite, and trail maps.`);
+      setOfflineStatus(`Downloaded ~${totalUrls} tiles (${radiusMi} mi radius, including route corridor) across normal, satellite, and trail maps.`);
     } catch {
       setOfflineStatus('Offline prep partially completed.');
     } finally {
@@ -670,7 +777,10 @@ export default function TripWorkspace() {
             userLocation={userLocation}
             onStopSelect={stop => handleOpenStop(stop)}
             onLongPress={handleLongPress}
-            onMapTap={['weather-current', 'weather-scheduled'].includes(mapLayer) ? handleMapTapWeather : undefined}
+            onMapTap={
+              ['weather-current', 'weather-scheduled'].includes(mapLayer) ? handleMapTapWeather :
+              mapLayer === 'aqi' ? handleMapTapAqi : undefined
+            }
             darkMode={darkMode}
             searchPins={mapSearchResults}
             onSearchPinSelect={pin => setSelectedSearchPin(pin)}
@@ -684,6 +794,19 @@ export default function TripWorkspace() {
             }}
             offlinePins={offlinePins}
             offlineRadiusMeters={(settings.offlineRadiusMi ?? 5) * MI_TO_METERS}
+            aqiPins={aqiPins}
+            aqiTilesAvailable={aqiTilesAvailable}
+            onAqiPinClick={pin => {
+              setMapAqiModal({
+                loading: false,
+                lat: pin.lat,
+                lng: pin.lng,
+                aqi: pin.aqi,
+                level: pin.level,
+                pm2_5: pin.pm2_5,
+                pm10: pin.pm10,
+              });
+            }}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -824,6 +947,9 @@ export default function TripWorkspace() {
           )}
           {weatherLoading && ['weather-current', 'weather-scheduled'].includes(mapLayer) && (
             <div className="ws-offline-status">Loading weather along your route…</div>
+          )}
+          {aqiLoading && mapLayer === 'aqi' && (
+            <div className="ws-offline-status">Loading air quality data…</div>
           )}
           {offlineStatus && <div className="ws-offline-status">{offlineStatus}</div>}
 
@@ -1153,6 +1279,48 @@ export default function TripWorkspace() {
                   </div>
                   <div className="sheet-detail-row">
                     🌡 {formatWeatherTemp(mapWeatherModal.weather.temperature)} · 💨 {formatWindSpeed(mapWeatherModal.weather.windSpeed)}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {mapAqiModal && (
+        <div className="sheet-overlay" onClick={() => setMapAqiModal(null)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-header">
+              <h3>🌫 Air Quality here</h3>
+              <button className="sheet-close" onClick={() => setMapAqiModal(null)}>×</button>
+            </div>
+            <div className="sheet-body" style={{ paddingBottom: '24px' }}>
+              <p className="sheet-address">
+                {mapAqiModal.lat.toFixed(4)}, {mapAqiModal.lng.toFixed(4)}
+              </p>
+              {mapAqiModal.loading && <div className="sheet-detail-row">Loading…</div>}
+              {!mapAqiModal.loading && mapAqiModal.error && (
+                <div className="sheet-detail-row">{mapAqiModal.error}</div>
+              )}
+              {!mapAqiModal.loading && mapAqiModal.aqi != null && (
+                <>
+                  <div className="sheet-detail-row" style={{ fontSize: '1.2rem' }}>
+                    <span style={{
+                      display: 'inline-block', width: 14, height: 14, borderRadius: 3,
+                      background: mapAqiModal.level?.color || '#888',
+                      marginRight: 8, verticalAlign: 'middle',
+                    }} />
+                    <strong>AQI {mapAqiModal.aqi}</strong>
+                    {mapAqiModal.level && <span style={{ marginLeft: 8, fontSize: '0.9rem', color: 'var(--text-muted)' }}>{mapAqiModal.level.label}</span>}
+                  </div>
+                  {mapAqiModal.pm2_5 != null && (
+                    <div className="sheet-detail-row">PM2.5: {mapAqiModal.pm2_5.toFixed(1)} µg/m³</div>
+                  )}
+                  {mapAqiModal.pm10 != null && (
+                    <div className="sheet-detail-row">PM10: {mapAqiModal.pm10.toFixed(1)} µg/m³</div>
+                  )}
+                  <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+                    Data: Open-Meteo Air Quality API
                   </div>
                 </>
               )}

@@ -4,6 +4,9 @@ import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import { PIN_TYPES } from '../../constants/pinTypes.js';
 import { getLocationGroupKey } from '../../constants/map.js';
+import { AQI_LEVELS } from '../../services/aqi.js';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // Fix Leaflet default icon paths (broken in Vite builds)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -85,6 +88,19 @@ function makeWeatherIcon(emoji, tempLabel) {
     font-size:14px;padding:0 8px;gap:4px;
   "><span>${emoji}</span><span style="font-size:11px;font-weight:700;">${tempLabel || ''}</span></div>`;
   return L.divIcon({ html, className: '', iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -32] });
+}
+
+function makeAqiIcon(aqi, level) {
+  const color = level?.color || '#888';
+  const textColor = level?.textColor || '#fff';
+  const html = `<div style="
+    min-width:38px;height:28px;border-radius:14px;
+    background:${color};color:${textColor};
+    border:2px solid rgba(255,255,255,0.8);box-shadow:0 2px 8px rgba(0,0,0,.35);
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:700;padding:0 7px;gap:2px;
+  ">🌫 ${aqi}</div>`;
+  return L.divIcon({ html, className: '', iconSize: [38, 28], iconAnchor: [19, 28], popupAnchor: [0, -30] });
 }
 
 // Exposes imperative map control methods to parent via ref
@@ -220,7 +236,8 @@ const TripMap = forwardRef(function TripMap(
     searchPins = [], onSearchPinSelect, searchSelectedId, mapLayer = 'normal',
     weatherPins = [], completedFraction = 0, onMapTap,
     hideStopPins = false, onWeatherPinClick,
-    offlinePins = [], offlineRadiusMeters = 8047 },
+    offlinePins = [], offlineRadiusMeters = 8047,
+    aqiPins = [], onAqiPinClick, aqiTilesAvailable = false },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -239,6 +256,13 @@ const TripMap = forwardRef(function TripMap(
       return { representative, representativeIdx, isNext, count: group.stops.length };
     });
   }, [stops, nextStop?.id]);
+
+  const isAqiLayer = mapLayer === 'aqi';
+  // When AQI tiles are configured, use the proxy URL; otherwise fall back to AQI pins only
+  const aqiTileUrl = aqiTilesAvailable
+    ? `${API_BASE}/api/aqi/tile/{z}/{x}/{y}`
+    : null;
+
   const tileLayerByMode = {
     normal: darkMode
       ? {
@@ -263,7 +287,10 @@ const TripMap = forwardRef(function TripMap(
       attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
     },
   };
-  const layer = tileLayerByMode[mapLayer] || tileLayerByMode.normal;
+  // AQI uses the normal base map + an overlay tile layer
+  const layer = isAqiLayer
+    ? (tileLayerByMode.normal)
+    : (tileLayerByMode[mapLayer] || tileLayerByMode.normal);
 
   const defaultCenter = stops.length > 0
     ? [stops[0].lat, stops[0].lng]
@@ -280,6 +307,14 @@ const TripMap = forwardRef(function TripMap(
         <TileLayer url={layer.url} attribution={layer.attribution} />
         {layer.labelOverlay && (
           <TileLayer url={layer.labelOverlay.url} attribution={layer.labelOverlay.attribution} />
+        )}
+        {/* AQI semi-transparent overlay tile layer */}
+        {isAqiLayer && aqiTileUrl && (
+          <TileLayer
+            url={`${aqiTileUrl}`}
+            attribution='AQI data &copy; <a href="https://waqi.info">WAQI</a>'
+            opacity={0.7}
+          />
         )}
         <RouteLayer route={route} completedFraction={completedFraction} />
         <MapInitialFit stops={stops} userLocation={userLocation} />
@@ -349,7 +384,35 @@ const TripMap = forwardRef(function TripMap(
             pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.15, weight: 2 }}
           />
         ))}
+
+        {/* AQI pins (shown when tile overlay is unavailable or as supplement) */}
+        {isAqiLayer && aqiPins.map(pin => (
+          <Marker
+            key={`aqi-${pin.id}`}
+            position={[pin.lat, pin.lng]}
+            icon={makeAqiIcon(pin.aqi, pin.level)}
+            eventHandlers={onAqiPinClick ? { click: () => onAqiPinClick(pin) } : {}}
+          />
+        ))}
       </MapContainer>
+
+      {/* AQI legend */}
+      {isAqiLayer && (
+        <div style={{
+          position: 'absolute', bottom: '80px', left: '10px', zIndex: 1000,
+          background: 'rgba(15,23,42,0.9)', borderRadius: '10px', padding: '8px 12px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.4)', fontSize: '11px', color: '#fff',
+          pointerEvents: 'none',
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: '5px' }}>🌫 Air Quality Index</div>
+          {AQI_LEVELS.map(l => (
+            <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '2px' }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: l.color, border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
+              <span>{l.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 });

@@ -47,6 +47,46 @@ router.get(
   }
 );
 
+// ── Apple Sign In routes (only active when APPLE_* env vars are configured) ──
+router.get('/apple/available', (_req, res) => {
+  res.json({
+    available: !!(
+      process.env.APPLE_CLIENT_ID &&
+      process.env.APPLE_TEAM_ID &&
+      process.env.APPLE_KEY_ID &&
+      process.env.APPLE_PRIVATE_KEY
+    ),
+  });
+});
+
+router.get('/apple', authRateLimit, (req, res, next) => {
+  const invite = req.query.invite;
+  if (invite && /^[a-z0-9-]+$/i.test(invite)) {
+    req.session.pendingInvite = invite;
+  }
+  passport.authenticate('apple')(req, res, next);
+});
+
+// Apple sends a POST callback (form_post response mode)
+router.post(
+  '/apple/callback',
+  authRateLimit,
+  (req, res, next) => {
+    passport.authenticate('apple', (err, user, info) => {
+      if (err) return next(err);
+      if (!user) {
+        const msg = info?.message || 'auth_failed';
+        return res.redirect(`${appUrl}/login?error=${encodeURIComponent(msg)}`);
+      }
+      req.logIn(user, (loginErr) => {
+        if (loginErr) return next(loginErr);
+        delete req.session.pendingInvite;
+        req.session.save(() => res.redirect(appUrl));
+      });
+    })(req, res, next);
+  }
+);
+
 router.get('/me', (req, res) => {
   if (req.isAuthenticated()) {
     const { id, name, email, avatar, isApproved } = req.user;

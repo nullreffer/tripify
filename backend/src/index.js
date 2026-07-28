@@ -19,6 +19,7 @@ const dayRoutes = require('./routes/days');
 const reservationRoutes = require('./routes/reservations');
 const importRoutes = require('./routes/import');
 const placesRoutes = require('./routes/places');
+const aqiRoutes = require('./routes/aqi');
 const adminRoutes = require('./routes/admin');
 const { router: notificationRoutes } = require('./routes/notifications');
 
@@ -87,6 +88,7 @@ app.use('/api/trips/:tripId/import', importRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/invites', inviteRouter);
 app.use('/api/places', placesRoutes);
+app.use('/api/aqi', aqiRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 

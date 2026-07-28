@@ -63,13 +63,14 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { title } = req.body;
+    const { title, description } = req.body;
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Trip title is required' });
     }
     const trip = await prisma.trip.create({
       data: {
         title: title.trim(),
+        description: description?.trim() || null,
         userId: req.user.id
       }
     });
