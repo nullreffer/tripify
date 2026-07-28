@@ -89,6 +89,9 @@ function makeWeatherIcon(emoji, tempLabel) {
   return L.divIcon({ html, className: '', iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -32] });
 }
 
+// Radius (meters) of each AQI color overlay circle when tile overlay is unavailable
+const AQI_OVERLAY_RADIUS_METERS = 50000;
+
 // Exposes imperative map control methods to parent via ref
 // Approximate meters per degree of latitude at mid-latitudes
 const METERS_PER_DEGREE = 111_000;
@@ -376,7 +379,7 @@ const TripMap = forwardRef(function TripMap(
           <Circle
             key={`aqi-area-${pin.id}`}
             center={[pin.lat, pin.lng]}
-            radius={50000}
+            radius={AQI_OVERLAY_RADIUS_METERS}
             pathOptions={{
               color: pin.level?.color || '#888',
               fillColor: pin.level?.color || '#888',

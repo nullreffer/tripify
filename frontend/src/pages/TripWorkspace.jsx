@@ -378,7 +378,7 @@ export default function TripWorkspace() {
     if (!saveForLater && beforeAdd.length > 0 && newStop) {
       let insertAfterIdx;
       if (mode === 'next') {
-        // Insert after the last reached stop (or at the front if none reached)
+        // Insert after the last reached stop; -1 means none reached, so insertAfterIdx + 1 = 0 (front of list)
         insertAfterIdx = beforeAdd.reduce((acc, s, i) => s.reached ? i : acc, -1);
       } else {
         const nearestIdx = beforeAdd.reduce((best, s, i) => {

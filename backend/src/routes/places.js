@@ -22,6 +22,8 @@ const METERS_PER_DEGREE_LATITUDE = 111320;
 const MIN_COSINE_FOR_LNG_CALCULATION = 0.2;
 // Hard cap: 200 miles in meters — generous upper bound while still preventing runaway global searches
 const MAX_SEARCH_RADIUS_METERS = 321869;
+// Minimum sensible search radius to avoid degenerate tiny searches
+const MIN_SEARCH_RADIUS_METERS = 5000;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -48,8 +50,8 @@ function estimateViewportRadiusMeters(north, south, east, west) {
     MIN_COSINE_FOR_LNG_CALCULATION,
     Math.cos(centerLat * Math.PI / 180)
   );
-  // Clamp: minimum 5 km, maximum 100 miles — keeps searches fast even on zoomed-out maps
-  return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), 5000, MAX_SEARCH_RADIUS_METERS);
+  // Clamp: minimum 5 km, maximum 200 miles — keeps searches fast even on zoomed-out maps
+  return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), MIN_SEARCH_RADIUS_METERS, MAX_SEARCH_RADIUS_METERS);
 }
 
 // Build a locationRestriction (hard circle limit) centred on the provided point.
@@ -70,7 +72,7 @@ function buildLocationRestriction({ north, south, east, west, lat, lng, radius }
     let searchRadius = MAX_SEARCH_RADIUS_METERS;
     const clientRadius = Number.parseFloat(radius);
     if (Number.isFinite(clientRadius) && clientRadius > 0) {
-      searchRadius = clamp(Math.round(clientRadius), 5000, MAX_SEARCH_RADIUS_METERS);
+      searchRadius = clamp(Math.round(clientRadius), MIN_SEARCH_RADIUS_METERS, MAX_SEARCH_RADIUS_METERS);
     } else if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
       searchRadius = estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum);
     }
