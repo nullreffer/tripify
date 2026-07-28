@@ -55,9 +55,10 @@ function estimateViewportRadiusMeters(north, south, east, west) {
   return clamp(Math.round(Math.max(latMeters, lngMeters) / 2), MIN_SEARCH_RADIUS_METERS, MAX_SEARCH_RADIUS_METERS);
 }
 
-// Build a locationRestriction (hard circle limit) centred on the provided point.
-// Uses the map centre passed by the client (lat/lng) and the explicit radius when provided,
-// falling back to viewport estimation — always capped at the max radius.
+// Build a locationRestriction rectangle centred on the provided point.
+// The Places v1 Text Search API only supports `rectangle` (not `circle`) for
+// locationRestriction. When an explicit centre + radius are provided we compute a
+// bounding rectangle; when only viewport bounds are available we use those directly.
 function buildLocationRestriction({ north, south, east, west, lat, lng, radius }) {
   const centerLat = parseLatitude(lat);
   const centerLng = normalizeLongitude(lng);
@@ -77,24 +78,29 @@ function buildLocationRestriction({ north, south, east, west, lat, lng, radius }
     } else if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
       searchRadius = estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum);
     }
+    // Convert radius (meters) to degree offsets for the bounding rectangle
+    const latDelta = searchRadius / METERS_PER_DEGREE_LATITUDE;
+    const lngDelta = searchRadius / (METERS_PER_DEGREE_LATITUDE * Math.max(MIN_COSINE_FOR_LNG_CALCULATION, Math.cos(centerLat * Math.PI / 180)));
     return {
-      circle: {
-        center: { latitude: centerLat, longitude: centerLng },
-        radius: searchRadius,
+      rectangle: {
+        low: {
+          latitude: clamp(centerLat - latDelta, -90, 90),
+          longitude: normalizeLongitude(centerLng - lngDelta),
+        },
+        high: {
+          latitude: clamp(centerLat + latDelta, -90, 90),
+          longitude: normalizeLongitude(centerLng + lngDelta),
+        },
       },
     };
   }
 
-  // Fall back to viewport centre when no explicit centre is provided
+  // Fall back to viewport bounds directly when no explicit centre is provided
   if ([northNum, southNum, eastNum, westNum].every(v => v != null) && northNum > southNum) {
-    let lngSpan = eastNum - westNum;
-    if (lngSpan < 0) lngSpan += 360;
-    const viewportCenterLat = (northNum + southNum) / 2;
-    const viewportCenterLng = normalizeLongitude(westNum + lngSpan / 2);
     return {
-      circle: {
-        center: { latitude: viewportCenterLat, longitude: viewportCenterLng },
-        radius: estimateViewportRadiusMeters(northNum, southNum, eastNum, westNum),
+      rectangle: {
+        low: { latitude: southNum, longitude: westNum },
+        high: { latitude: northNum, longitude: eastNum },
       },
     };
   }

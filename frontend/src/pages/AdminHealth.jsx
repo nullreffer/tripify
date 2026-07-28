@@ -27,6 +27,7 @@ function statusColor(code) {
 const SUCCESS_RATE_THRESHOLD = 90; // percent
 
 export default function AdminHealth() {
+  const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
