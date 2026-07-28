@@ -587,7 +587,7 @@ router.post('/items', requireAuth, upload.single('file'), async (req, res, next)
 // ── POST /api/import/trip/ai-generate  (AI trip generation from description) ──
 // Stream NDJSON progress like /trip/preview so the frontend can show live status.
 // Handles: basic trip parsing, route-based stop insertion (e.g. "add Costco every 2h").
-router.post('/trip/ai-generate', requireAuth, aiGenerateLimit, async (req, res) => {
+router.post('/trip/ai-generate', aiGenerateLimit, requireAuth, async (req, res) => {
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('X-Accel-Buffering', 'no');
