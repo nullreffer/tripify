@@ -99,6 +99,12 @@ function hexToRgb(hex) {
   return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
 }
 
+const COORDINATE_EPSILON = 0.0001;       // precision for grouping grid lat/lng values
+const DEFAULT_AQI_COLOR = [136, 136, 136]; // neutral gray for cells with no AQI data
+const AQI_CANVAS_WIDTH = 512;
+const AQI_CANVAS_HEIGHT = 512;
+const AQI_OVERLAY_ALPHA = 110;           // ~43% opacity (0–255)
+
 // Render the AQI pin grid as a bilinearly-interpolated colour gradient on an
 // off-screen canvas, then mount it as a Leaflet imageOverlay. This replaces the
 // previous approach of rendering overlapping Circle elements.
@@ -112,19 +118,17 @@ function AqiGradientOverlay({ pins }) {
     if (!pins.length) return;
 
     // Reconstruct grid from pin coordinates
-    const eps = 0.0001;
-    const uniqueLats = [...new Set(pins.map(p => Math.round(p.lat / eps) * eps))].sort((a, b) => a - b);
-    const uniqueLngs = [...new Set(pins.map(p => Math.round(p.lng / eps) * eps))].sort((a, b) => a - b);
+    const uniqueLats = [...new Set(pins.map(p => Math.round(p.lat / COORDINATE_EPSILON) * COORDINATE_EPSILON))].sort((a, b) => a - b);
+    const uniqueLngs = [...new Set(pins.map(p => Math.round(p.lng / COORDINATE_EPSILON) * COORDINATE_EPSILON))].sort((a, b) => a - b);
     const rows = uniqueLats.length;
     const cols = uniqueLngs.length;
     if (rows < 2 || cols < 2) return;
 
     // Build color grid [row][col] → [r, g, b], row 0 = minLat
-    const fallback = [136, 136, 136];
-    const colorGrid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => fallback));
+    const colorGrid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => DEFAULT_AQI_COLOR));
     pins.forEach(pin => {
-      const row = uniqueLats.findIndex(v => Math.abs(v - pin.lat) < eps * 2);
-      const col = uniqueLngs.findIndex(v => Math.abs(v - pin.lng) < eps * 2);
+      const row = uniqueLats.findIndex(v => Math.abs(v - pin.lat) < COORDINATE_EPSILON * 2);
+      const col = uniqueLngs.findIndex(v => Math.abs(v - pin.lng) < COORDINATE_EPSILON * 2);
       if (row !== -1 && col !== -1 && pin.level?.color) {
         colorGrid[row][col] = hexToRgb(pin.level.color);
       }
@@ -134,22 +138,21 @@ function AqiGradientOverlay({ pins }) {
     const minLng = uniqueLngs[0], maxLng = uniqueLngs[cols - 1];
 
     // Render gradient on a canvas using bilinear interpolation
-    const W = 512, H = 512;
     const canvas = document.createElement('canvas');
-    canvas.width = W; canvas.height = H;
+    canvas.width = AQI_CANVAS_WIDTH; canvas.height = AQI_CANVAS_HEIGHT;
     const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(W, H);
+    const imageData = ctx.createImageData(AQI_CANVAS_WIDTH, AQI_CANVAS_HEIGHT);
     const d = imageData.data;
 
-    for (let py = 0; py < H; py++) {
+    for (let py = 0; py < AQI_CANVAS_HEIGHT; py++) {
       // Canvas y=0 is north (maxLat), y=H-1 is south (minLat)
-      const lat = maxLat - (maxLat - minLat) * (py / (H - 1));
+      const lat = maxLat - (maxLat - minLat) * (py / (AQI_CANVAS_HEIGHT - 1));
       const rowF = ((lat - minLat) / (maxLat - minLat)) * (rows - 1);
       const row0 = Math.max(0, Math.min(rows - 2, Math.floor(rowF)));
       const ty = rowF - row0;
 
-      for (let px = 0; px < W; px++) {
-        const lng = minLng + (maxLng - minLng) * (px / (W - 1));
+      for (let px = 0; px < AQI_CANVAS_WIDTH; px++) {
+        const lng = minLng + (maxLng - minLng) * (px / (AQI_CANVAS_WIDTH - 1));
         const colF = ((lng - minLng) / (maxLng - minLng)) * (cols - 1);
         const col0 = Math.max(0, Math.min(cols - 2, Math.floor(colF)));
         const tx = colF - col0;
@@ -161,11 +164,11 @@ function AqiGradientOverlay({ pins }) {
         const tr = colorGrid[row0 + 1][col0 + 1];
         const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
 
-        const i = (py * W + px) * 4;
+        const i = (py * AQI_CANVAS_WIDTH + px) * 4;
         d[i]     = Math.round(bl[0] * w00 + br[0] * w10 + tl[0] * w01 + tr[0] * w11);
         d[i + 1] = Math.round(bl[1] * w00 + br[1] * w10 + tl[1] * w01 + tr[1] * w11);
         d[i + 2] = Math.round(bl[2] * w00 + br[2] * w10 + tl[2] * w01 + tr[2] * w11);
-        d[i + 3] = 110; // ~43% opacity
+        d[i + 3] = AQI_OVERLAY_ALPHA;
       }
     }
 
