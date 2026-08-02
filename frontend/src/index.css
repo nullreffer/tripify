@@ -2829,7 +2829,7 @@ body {
 }
 .more-cover-img {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 5 / 2;
   object-fit: cover;
   border-radius: 10px;
   background: var(--bg);

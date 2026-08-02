@@ -106,82 +106,104 @@ const AQI_CANVAS_HEIGHT = 512;
 const AQI_OVERLAY_ALPHA = 110;           // ~43% opacity (0–255)
 
 // Render the AQI pin grid as a bilinearly-interpolated colour gradient on an
-// off-screen canvas, then mount it as a Leaflet imageOverlay. This replaces the
-// previous approach of rendering overlapping Circle elements.
+// off-screen canvas, then mount it as a Leaflet imageOverlay. The overlay is
+// re-rendered whenever the map moves so it always covers the visible viewport.
 function AqiGradientOverlay({ pins }) {
   const map = useMap();
   const layerRef = useRef(null);
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
 
   useEffect(() => {
-    // Always remove the previous overlay before (re-)adding
-    if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
-    if (!pins.length) return;
+    function doRender() {
+      const currentPins = pinsRef.current;
+      if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
+      if (!currentPins.length) return;
 
-    // Reconstruct grid from pin coordinates
-    const uniqueLats = [...new Set(pins.map(p => Math.round(p.lat / COORDINATE_EPSILON) * COORDINATE_EPSILON))].sort((a, b) => a - b);
-    const uniqueLngs = [...new Set(pins.map(p => Math.round(p.lng / COORDINATE_EPSILON) * COORDINATE_EPSILON))].sort((a, b) => a - b);
-    const rows = uniqueLats.length;
-    const cols = uniqueLngs.length;
-    if (rows < 2 || cols < 2) return;
+      // Reconstruct grid from pin coordinates
+      const uniqueLats = [...new Set(currentPins.map(p => Math.round(p.lat / COORDINATE_EPSILON) * COORDINATE_EPSILON))].sort((a, b) => a - b);
+      const uniqueLngs = [...new Set(currentPins.map(p => Math.round(p.lng / COORDINATE_EPSILON) * COORDINATE_EPSILON))].sort((a, b) => a - b);
+      const rows = uniqueLats.length;
+      const cols = uniqueLngs.length;
+      if (rows < 2 || cols < 2) return;
 
-    // Build color grid [row][col] → [r, g, b], row 0 = minLat
-    const colorGrid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => DEFAULT_AQI_COLOR));
-    pins.forEach(pin => {
-      const row = uniqueLats.findIndex(v => Math.abs(v - pin.lat) < COORDINATE_EPSILON * 2);
-      const col = uniqueLngs.findIndex(v => Math.abs(v - pin.lng) < COORDINATE_EPSILON * 2);
-      if (row !== -1 && col !== -1 && pin.level?.color) {
-        colorGrid[row][col] = hexToRgb(pin.level.color);
+      // Build color grid [row][col] → [r, g, b], row 0 = minLat
+      const colorGrid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => DEFAULT_AQI_COLOR));
+      currentPins.forEach(pin => {
+        const row = uniqueLats.findIndex(v => Math.abs(v - pin.lat) < COORDINATE_EPSILON * 2);
+        const col = uniqueLngs.findIndex(v => Math.abs(v - pin.lng) < COORDINATE_EPSILON * 2);
+        if (row !== -1 && col !== -1 && pin.level?.color) {
+          colorGrid[row][col] = hexToRgb(pin.level.color);
+        }
+      });
+
+      const dataMinLat = uniqueLats[0], dataMaxLat = uniqueLats[rows - 1];
+      const dataMinLng = uniqueLngs[0], dataMaxLng = uniqueLngs[cols - 1];
+
+      // Expand bounds to current viewport so the overlay always fills the view.
+      // Areas outside the data sample range are filled by extending the nearest
+      // edge color, keeping the overlay seamless as the user pans.
+      const vb = map.getBounds().pad(0.3);
+      const minLat = Math.min(dataMinLat, vb.getSouth());
+      const maxLat = Math.max(dataMaxLat, vb.getNorth());
+      const minLng = Math.min(dataMinLng, vb.getWest());
+      const maxLng = Math.max(dataMaxLng, vb.getEast());
+
+      // Render gradient on a canvas using bilinear interpolation.
+      // Coordinates outside the data grid are clamped to the nearest edge.
+      const canvas = document.createElement('canvas');
+      canvas.width = AQI_CANVAS_WIDTH; canvas.height = AQI_CANVAS_HEIGHT;
+      const ctx = canvas.getContext('2d');
+      const imageData = ctx.createImageData(AQI_CANVAS_WIDTH, AQI_CANVAS_HEIGHT);
+      const d = imageData.data;
+
+      for (let py = 0; py < AQI_CANVAS_HEIGHT; py++) {
+        // Canvas y=0 is north (maxLat), y=H-1 is south (minLat)
+        const lat = maxLat - (maxLat - minLat) * (py / (AQI_CANVAS_HEIGHT - 1));
+        const clampedLat = Math.max(dataMinLat, Math.min(dataMaxLat, lat));
+        const rowF = ((clampedLat - dataMinLat) / (dataMaxLat - dataMinLat)) * (rows - 1);
+        const row0 = Math.max(0, Math.min(rows - 2, Math.floor(rowF)));
+        const ty = rowF - row0;
+
+        for (let px = 0; px < AQI_CANVAS_WIDTH; px++) {
+          const lng = minLng + (maxLng - minLng) * (px / (AQI_CANVAS_WIDTH - 1));
+          const clampedLng = Math.max(dataMinLng, Math.min(dataMaxLng, lng));
+          const colF = ((clampedLng - dataMinLng) / (dataMaxLng - dataMinLng)) * (cols - 1);
+          const col0 = Math.max(0, Math.min(cols - 2, Math.floor(colF)));
+          const tx = colF - col0;
+
+          // Bilinear interpolation between the four surrounding grid cells
+          const bl = colorGrid[row0][col0];
+          const br = colorGrid[row0][col0 + 1];
+          const tl = colorGrid[row0 + 1][col0];
+          const tr = colorGrid[row0 + 1][col0 + 1];
+          const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+
+          const i = (py * AQI_CANVAS_WIDTH + px) * 4;
+          d[i]     = Math.round(bl[0] * w00 + br[0] * w10 + tl[0] * w01 + tr[0] * w11);
+          d[i + 1] = Math.round(bl[1] * w00 + br[1] * w10 + tl[1] * w01 + tr[1] * w11);
+          d[i + 2] = Math.round(bl[2] * w00 + br[2] * w10 + tl[2] * w01 + tr[2] * w11);
+          d[i + 3] = AQI_OVERLAY_ALPHA;
+        }
       }
-    });
 
-    const minLat = uniqueLats[0], maxLat = uniqueLats[rows - 1];
-    const minLng = uniqueLngs[0], maxLng = uniqueLngs[cols - 1];
-
-    // Render gradient on a canvas using bilinear interpolation
-    const canvas = document.createElement('canvas');
-    canvas.width = AQI_CANVAS_WIDTH; canvas.height = AQI_CANVAS_HEIGHT;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(AQI_CANVAS_WIDTH, AQI_CANVAS_HEIGHT);
-    const d = imageData.data;
-
-    for (let py = 0; py < AQI_CANVAS_HEIGHT; py++) {
-      // Canvas y=0 is north (maxLat), y=H-1 is south (minLat)
-      const lat = maxLat - (maxLat - minLat) * (py / (AQI_CANVAS_HEIGHT - 1));
-      const rowF = ((lat - minLat) / (maxLat - minLat)) * (rows - 1);
-      const row0 = Math.max(0, Math.min(rows - 2, Math.floor(rowF)));
-      const ty = rowF - row0;
-
-      for (let px = 0; px < AQI_CANVAS_WIDTH; px++) {
-        const lng = minLng + (maxLng - minLng) * (px / (AQI_CANVAS_WIDTH - 1));
-        const colF = ((lng - minLng) / (maxLng - minLng)) * (cols - 1);
-        const col0 = Math.max(0, Math.min(cols - 2, Math.floor(colF)));
-        const tx = colF - col0;
-
-        // Bilinear interpolation between the four surrounding grid cells
-        const bl = colorGrid[row0][col0];
-        const br = colorGrid[row0][col0 + 1];
-        const tl = colorGrid[row0 + 1][col0];
-        const tr = colorGrid[row0 + 1][col0 + 1];
-        const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
-
-        const i = (py * AQI_CANVAS_WIDTH + px) * 4;
-        d[i]     = Math.round(bl[0] * w00 + br[0] * w10 + tl[0] * w01 + tr[0] * w11);
-        d[i + 1] = Math.round(bl[1] * w00 + br[1] * w10 + tl[1] * w01 + tr[1] * w11);
-        d[i + 2] = Math.round(bl[2] * w00 + br[2] * w10 + tl[2] * w01 + tr[2] * w11);
-        d[i + 3] = AQI_OVERLAY_ALPHA;
-      }
+      ctx.putImageData(imageData, 0, 0);
+      const bounds = L.latLngBounds([[minLat, minLng], [maxLat, maxLng]]);
+      const overlay = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 1, interactive: false });
+      overlay.addTo(map);
+      layerRef.current = overlay;
     }
 
-    ctx.putImageData(imageData, 0, 0);
-    const bounds = L.latLngBounds([[minLat, minLng], [maxLat, maxLng]]);
-    const overlay = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 1, interactive: false });
-    overlay.addTo(map);
-    layerRef.current = overlay;
+    doRender();
+    map.on('moveend', doRender);
+    map.on('zoomend', doRender);
 
     return () => {
       if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
+      map.off('moveend', doRender);
+      map.off('zoomend', doRender);
     };
-  }, [pins, map]);
+  }, [pins, map]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;
 }
@@ -360,10 +382,10 @@ const TripMap = forwardRef(function TripMap(
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-      // Label overlay so city/state names appear on top of satellite imagery
+      // Label overlay so city/street names appear on top of satellite imagery
       labelOverlay: {
-        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-        attribution: '',
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
       },
     },
     trails: {

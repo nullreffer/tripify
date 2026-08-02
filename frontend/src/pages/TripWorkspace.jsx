@@ -485,14 +485,34 @@ export default function TripWorkspace() {
     }
   }, [tripData, routeStops, savedStops]);
 
-  // Mark reached from any tab — always show photo prompt when marking as reached
+  // Mark reached from any tab — set targetDate to now and shift subsequent stop dates
   const handleMarkReached = useCallback(async (stopId, reached = true) => {
     await tripData.markReached(stopId, reached);
-    if (reached !== false) {
+    if (reached) {
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const arrivedStop = routeStops.find(s => s.id === stopId);
+
+      // Set arrived pin's targetDate to now
+      await tripData.updateStop(stopId, { targetDate: nowIso });
+
+      // Shift subsequent unreached stops if there's a meaningful date offset
+      if (arrivedStop?.targetDate) {
+        const offsetMs = now.getTime() - new Date(arrivedStop.targetDate).getTime();
+        if (Math.abs(offsetMs) > 60 * 60 * 1000) { // Only shift if offset > 1 hour
+          const arrivedIdx = routeStops.findIndex(s => s.id === stopId);
+          const subsequent = routeStops.slice(arrivedIdx + 1).filter(s => !s.reached && s.targetDate);
+          for (const s of subsequent) {
+            const newDate = new Date(new Date(s.targetDate).getTime() + offsetMs);
+            await tripData.updateStop(s.id, { targetDate: newDate.toISOString() });
+          }
+        }
+      }
+
       const stop = stops.find(s => s.id === stopId);
       if (stop) setPhotoPromptStop(stop);
     }
-  }, [tripData, stops]);
+  }, [tripData, stops, routeStops]);
 
   // Move a saved-for-later stop into the main route, inserted after the nearest route stop
   const handleAddSavedToRoute = useCallback(async (stop) => {
@@ -1053,10 +1073,7 @@ export default function TripWorkspace() {
                 >
                   Directions
                 </button>
-                <button className="ws-reach-btn" onClick={async () => {
-                    await tripData.markReached(nextStop.id);
-                    setPhotoPromptStop(nextStop);
-                  }}>
+                <button className="ws-reach-btn" onClick={() => handleMarkReached(nextStop.id)}>
                   ✓ Arrived
                 </button>
               </div>
@@ -1211,6 +1228,7 @@ export default function TripWorkspace() {
         <StopSheet
           stop={selectedStop}
           stops={stops}
+          days={days}
           route={route}
           units={units}
           userLocation={userLocation}
@@ -1224,9 +1242,8 @@ export default function TripWorkspace() {
           onAddToRoute={handleAddSavedToRoute}
           onReach={() => {
             const wasReached = selectedStop.reached;
-            tripData.markReached(selectedStop.id, !wasReached);
+            handleMarkReached(selectedStop.id, !wasReached);
             setSelectedStop(prev => ({ ...prev, reached: !prev.reached }));
-            if (!wasReached) setPhotoPromptStop(selectedStop);
           }}
           onDelete={async () => {
             await tripData.deleteStop(selectedStop.id);
