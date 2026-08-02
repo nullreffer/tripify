@@ -68,7 +68,9 @@ function compressImage(file, maxDim = 1200, quality = 0.82) {
   });
 }
 
-export default function StopSheet({ stop, stops, route, userLocation, onClose, onUpdate, onOpenNearbySearch, onAskWhatsAround, onReach, onDelete, onAddToRoute, canEdit }) {
+const ENTRY_ICONS = { ACTIVITY: '🥾', TRAVEL: '🚗', ACCOMMODATION: '🏕', NOTE: '📝' };
+
+export default function StopSheet({ stop, stops, days = [], route, userLocation, onClose, onUpdate, onOpenNearbySearch, onAskWhatsAround, onReach, onDelete, onAddToRoute, canEdit }) {
   const [tab, setTab] = useState('info');
   const [name, setName] = useState(stop.name);
   const [pinType, setPinType] = useState(stop.pinType);
@@ -102,6 +104,21 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
     () => [stop, ...sameLocationStops].filter(s => (s.notes || '').trim().length > 0),
     [stop, sameLocationStops]
   );
+
+  // Find the day entry matching this stop (by date or location name)
+  const matchingDay = useMemo(() => {
+    if (!days?.length) return null;
+    if (stop.targetDate) {
+      const stopDate = new Date(stop.targetDate).toDateString();
+      const byDate = days.find(d => d.date && new Date(d.date).toDateString() === stopDate);
+      if (byDate) return byDate;
+    }
+    if (stop.name) {
+      const nameLower = stop.name.toLowerCase().slice(0, 20);
+      return days.find(d => d.location && d.location.toLowerCase().includes(nameLower)) || null;
+    }
+    return null;
+  }, [days, stop.targetDate, stop.name]);
 
   // For route stops: use the stop's index in the route stops list for leg lookup
   const routeStops = stops.filter(s => !s?.metadata?.savedForLater);
@@ -268,6 +285,31 @@ export default function StopSheet({ stop, stops, route, userLocation, onClose, o
                     {' · '}
                     {metadata.checkOut ? `Check-out: ${new Date(metadata.checkOut).toLocaleString()}` : 'Check-out: —'}
                   </span>
+                </div>
+              )}
+
+              {/* Day activities for this stop */}
+              {matchingDay && matchingDay.entries?.length > 0 && (
+                <div className="sheet-detail-row" style={{ display: 'block' }}>
+                  <strong>📅 {matchingDay.date ? new Date(matchingDay.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Day'} activities</strong>
+                  <div style={{ marginTop: '8px', display: 'grid', gap: '6px' }}>
+                    {matchingDay.entries.map(entry => (
+                      <div key={entry.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: '14px', flexShrink: 0 }}>{ENTRY_ICONS[entry.type] || '📝'}</span>
+                        <div style={{ fontSize: '.85rem', color: 'var(--text)' }}>
+                          <div style={{ fontWeight: 600 }}>{entry.title}</div>
+                          {entry.startTime && (
+                            <div style={{ color: 'var(--text-muted)', fontSize: '.78rem' }}>
+                              {entry.startTime}{entry.endTime ? ` – ${entry.endTime}` : ''}
+                            </div>
+                          )}
+                          {entry.description && (
+                            <div style={{ color: 'var(--text-muted)', fontSize: '.78rem' }}>{entry.description}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

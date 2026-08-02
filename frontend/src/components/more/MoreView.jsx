@@ -466,7 +466,7 @@ export default function MoreView({ trip, stops, route, references, days, reserva
               <div
                 ref={cropContainerRef}
                 style={{
-                  width: '100%', height: '220px', overflow: 'hidden',
+                  width: '100%', aspectRatio: '5/2', overflow: 'hidden',
                   borderRadius: '8px', border: '2px solid var(--border)',
                   position: 'relative', background: '#000', cursor: 'grab',
                   touchAction: 'none', userSelect: 'none',
