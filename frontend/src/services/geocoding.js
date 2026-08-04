@@ -61,20 +61,29 @@ export async function searchLocations(query) {
 // Search for POIs near a given map center using Overpass API (much better for chain stores / POIs).
 // Falls back to Nominatim when no center available.
 // Also queries Google Places API and merges results.
-export async function searchNearby(query, center, radiusMeters = 160934) {
+//
+// Streaming pattern: OSM results are returned immediately via `onPartialResults` so the
+// UI can show results within ~2–3 s while Google Places continues loading in the background.
+// The final merged result is also returned as the resolved value.
+export async function searchNearby(query, center, radiusMeters = 160934, onPartialResults) {
   if (!query?.trim()) return [];
 
   const key = cacheKey(query, center);
   const cached = getCached(key);
   if (cached) return cached;
 
-  const [osmResult, googleResult] = await Promise.allSettled([
-    osmSearchNearby(query, center, radiusMeters),
-    googlePlacesSearch(query, center, radiusMeters),
-  ]);
+  // Start both requests concurrently but don't wait for both before showing results.
+  const osmPromise = osmSearchNearby(query, center, radiusMeters);
+  const googlePromise = googlePlacesSearch(query, center, radiusMeters);
 
-  const osm = osmResult.status === 'fulfilled' ? osmResult.value : [];
-  const google = googleResult.status === 'fulfilled' ? googleResult.value : [];
+  // Deliver OSM results to the UI as soon as they arrive (usually 1–3 s faster than Google).
+  const osm = await osmPromise.catch(() => []);
+  if (onPartialResults && osm.length > 0) {
+    onPartialResults(osm);
+  }
+
+  // Now wait for Google and merge
+  const google = await googlePromise.catch(() => []);
 
   const results = mergeResults(osm, google);
   setCached(key, results);
@@ -121,7 +130,7 @@ async function googlePlacesSearch(query, center, radiusMeters) {
     }
     const res = await fetch(`${API_BASE}/api/places/search?${params}`, {
       credentials: 'include',
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return [];
     return await res.json();
@@ -136,7 +145,7 @@ async function searchOverpass(query, center, radiusMeters) {
     // within a circle around the map center
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const around = `around:${Math.round(radiusMeters)},${center.lat},${center.lng}`;
-    const ql = `[out:json][timeout:6];
+    const ql = `[out:json][timeout:4];
 (
   nwr["name"~"${escaped}",i](${around});
   nwr["brand"~"${escaped}",i](${around});
@@ -147,7 +156,7 @@ out center 20;`;
       method: 'POST',
       body: ql,
       headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Azitrip/1.0' },
-      signal: AbortSignal.timeout(7000),
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
     const data = await res.json();

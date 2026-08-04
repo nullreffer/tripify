@@ -41,3 +41,16 @@ export async function getAqiForStop(lat, lng) {
     return null;
   }
 }
+
+export async function getActiveFires() {
+  try {
+    const res = await fetch(`${API_BASE}/api/aqi/fires`, {
+      credentials: 'include',
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}

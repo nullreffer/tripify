@@ -89,7 +89,19 @@ function makeWeatherIcon(emoji, tempLabel) {
   return L.divIcon({ html, className: '', iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -32] });
 }
 
-// Radius (meters) of each AQI color overlay circle when tile overlay is unavailable.
+function makeFireIcon() {
+  const html = `<div style="
+    width:32px;height:32px;border-radius:50%;
+    background:rgba(15,23,42,0.85);
+    border:2px solid #ef4444;
+    box-shadow:0 0 0 2px rgba(239,68,68,0.4),0 2px 6px rgba(0,0,0,.4);
+    display:flex;align-items:center;justify-content:center;
+    font-size:16px;cursor:pointer;
+  ">🔥</div>`;
+  return L.divIcon({ html, className: '', iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -34] });
+}
+
+
 // Overridden at runtime by an adaptive value computed from the trip bounding box.
 const AQI_OVERLAY_RADIUS_METERS_DEFAULT = 50000;
 
@@ -343,7 +355,8 @@ const TripMap = forwardRef(function TripMap(
     hideStopPins = false, onWeatherPinClick,
     offlinePins = [], offlineRadiusMeters = 8047,
     aqiPins = [], onAqiPinClick, aqiTilesAvailable = false,
-    aqiOverlayRadiusMeters = AQI_OVERLAY_RADIUS_METERS_DEFAULT },
+    aqiOverlayRadiusMeters = AQI_OVERLAY_RADIUS_METERS_DEFAULT,
+    firePins = [], onFirePinClick },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -376,8 +389,10 @@ const TripMap = forwardRef(function TripMap(
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
       }
       : {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+        // OpenStreetMap Standard tiles — rich POI labels (parks, gas stations, lakes,
+        // road names, etc.) visible at zoom 12+ unlike the CARTO Voyager style.
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -495,6 +510,16 @@ const TripMap = forwardRef(function TripMap(
         {isAqiLayer && !aqiTilesAvailable && (
           <AqiGradientOverlay pins={aqiPins} />
         )}
+
+        {/* Active fire pins (shown on AQI layer) */}
+        {isAqiLayer && firePins.map((pin, i) => (
+          <Marker
+            key={`fire-${pin.lat}-${pin.lng}-${i}`}
+            position={[pin.lat, pin.lng]}
+            icon={makeFireIcon()}
+            eventHandlers={onFirePinClick ? { click: () => onFirePinClick(pin) } : {}}
+          />
+        ))}
       </MapContainer>
 
       {/* AQI legend */}
@@ -517,6 +542,12 @@ const TripMap = forwardRef(function TripMap(
             <span>Unhealthy</span>
             <span>Hazardous</span>
           </div>
+          {firePins.length > 0 && (
+            <div style={{ marginTop: '6px', fontSize: '10px', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>🔥</span>
+              <span>Active fire ({firePins.length} detection{firePins.length !== 1 ? 's' : ''}, last 24 h)</span>
+            </div>
+          )}
         </div>
       )}
     </div>
