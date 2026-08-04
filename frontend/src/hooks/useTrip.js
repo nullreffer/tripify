@@ -2,6 +2,27 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 const API = import.meta.env.VITE_API_URL || '';
 
+function cacheKey(tripId) {
+  return `azitrip_trip_${tripId}`;
+}
+
+function readCache(tripId) {
+  try {
+    const raw = localStorage.getItem(cacheKey(tripId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(tripId, snapshot) {
+  try {
+    localStorage.setItem(cacheKey(tripId), JSON.stringify(snapshot));
+  } catch {
+    // Storage quota exceeded — ignore
+  }
+}
+
 export function useTrip(tripId) {
   const [trip, setTrip] = useState(null);
   const [stops, setStops] = useState([]);
@@ -12,7 +33,16 @@ export function useTrip(tripId) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
+  const [isOffline, setIsOffline] = useState(false);
   const saveTimer = useRef(null);
+
+  // Refs that always reflect the latest state so persistCache can read them
+  // without needing to be in dependency arrays.
+  const stateRef = useRef({ trip: null, stops: [], categories: [], references: [], days: [], reservations: [] });
+
+  const persistCache = useCallback(() => {
+    writeCache(tripId, stateRef.current);
+  }, [tripId]);
 
   const markSaving = () => {
     setSaveState('saving');
@@ -20,12 +50,46 @@ export function useTrip(tripId) {
   };
   const markSaved = () => {
     setSaveState('saved');
+    persistCache();
     saveTimer.current = setTimeout(() => setSaveState('idle'), 2000);
   };
   const markSaveError = () => setSaveState('error');
 
+  // ── Tracked setters — keep stateRef in sync for cache persistence ──────────
+  const setTripT = useCallback((val) => {
+    const next = typeof val === 'function' ? val(stateRef.current.trip) : val;
+    stateRef.current = { ...stateRef.current, trip: next };
+    setTrip(next);
+  }, []);
+  const setStopsT = useCallback((val) => {
+    const next = typeof val === 'function' ? val(stateRef.current.stops) : val;
+    stateRef.current = { ...stateRef.current, stops: next };
+    setStops(next);
+  }, []);
+  const setCategoriesT = useCallback((val) => {
+    const next = typeof val === 'function' ? val(stateRef.current.categories) : val;
+    stateRef.current = { ...stateRef.current, categories: next };
+    setCategories(next);
+  }, []);
+  const setReferencesT = useCallback((val) => {
+    const next = typeof val === 'function' ? val(stateRef.current.references) : val;
+    stateRef.current = { ...stateRef.current, references: next };
+    setReferences(next);
+  }, []);
+  const setDaysT = useCallback((val) => {
+    const next = typeof val === 'function' ? val(stateRef.current.days) : val;
+    stateRef.current = { ...stateRef.current, days: next };
+    setDays(next);
+  }, []);
+  const setReservationsT = useCallback((val) => {
+    const next = typeof val === 'function' ? val(stateRef.current.reservations) : val;
+    stateRef.current = { ...stateRef.current, reservations: next };
+    setReservations(next);
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
+    setIsOffline(false);
     try {
       const [tripRes, stopsRes, itemsRes, refsRes, daysRes, resRes] = await Promise.all([
         fetch(`${API}/api/trips/${tripId}`, { credentials: 'include' }),
@@ -39,14 +103,37 @@ export function useTrip(tripId) {
       const [tripData, stopsData, itemsData, refsData, daysData, resData] = await Promise.all([
         tripRes.json(), stopsRes.json(), itemsRes.json(), refsRes.json(), daysRes.json(), resRes.json()
       ]);
-      setTrip(tripData);
-      setStops(Array.isArray(stopsData) ? stopsData : []);
-      setCategories(Array.isArray(itemsData) ? itemsData : []);
-      setReferences(Array.isArray(refsData) ? refsData : []);
-      setDays(Array.isArray(daysData) ? daysData : []);
-      setReservations(Array.isArray(resData) ? resData : []);
+      const snapshot = {
+        trip: tripData,
+        stops: Array.isArray(stopsData) ? stopsData : [],
+        categories: Array.isArray(itemsData) ? itemsData : [],
+        references: Array.isArray(refsData) ? refsData : [],
+        days: Array.isArray(daysData) ? daysData : [],
+        reservations: Array.isArray(resData) ? resData : [],
+      };
+      stateRef.current = snapshot;
+      writeCache(tripId, snapshot);
+      setTrip(snapshot.trip);
+      setStops(snapshot.stops);
+      setCategories(snapshot.categories);
+      setReferences(snapshot.references);
+      setDays(snapshot.days);
+      setReservations(snapshot.reservations);
     } catch (err) {
-      setError(err.message);
+      // Network failure — try to serve from cache
+      const cached = readCache(tripId);
+      if (cached && cached.trip) {
+        stateRef.current = cached;
+        setTrip(cached.trip);
+        setStops(cached.stops || []);
+        setCategories(cached.categories || []);
+        setReferences(cached.references || []);
+        setDays(cached.days || []);
+        setReservations(cached.reservations || []);
+        setIsOffline(true);
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -59,11 +146,11 @@ export function useTrip(tripId) {
     const handler = () => {
       fetch(`${API}/api/trips/${tripId}/items`, { credentials: 'include' })
         .then(r => r.json())
-        .then(data => setCategories(Array.isArray(data) ? data : []));
+        .then(data => setCategoriesT(Array.isArray(data) ? data : []));
     };
     window.addEventListener('items-imported', handler);
     return () => window.removeEventListener('items-imported', handler);
-  }, [tripId]);
+  }, [tripId, setCategoriesT]);
 
   // ── Stop mutations ─────────────────────────────────────────────────────────
 
@@ -77,15 +164,15 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const stop = await res.json();
-      setStops(prev => [...prev, stop]);
+      setStopsT(prev => [...prev, stop]);
       markSaved();
       return stop;
     } catch (err) { markSaveError(); throw err; }
-  }, [tripId]);
+  }, [tripId, setStopsT]);
 
   const updateStop = useCallback(async (stopId, updates) => {
     // Optimistic update
-    setStops(prev => prev.map(s => s.id === stopId ? { ...s, ...updates } : s));
+    setStopsT(prev => prev.map(s => s.id === stopId ? { ...s, ...updates } : s));
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}/stops/${stopId}`, {
@@ -95,7 +182,7 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const stop = await res.json();
-      setStops(prev => prev.map(s => s.id === stopId ? stop : s));
+      setStopsT(prev => prev.map(s => s.id === stopId ? stop : s));
       markSaved();
       return stop;
     } catch (err) {
@@ -103,10 +190,10 @@ export function useTrip(tripId) {
       load(); // revert
       throw err;
     }
-  }, [tripId, load]);
+  }, [tripId, load, setStopsT]);
 
   const deleteStop = useCallback(async (stopId) => {
-    setStops(prev => prev.filter(s => s.id !== stopId));
+    setStopsT(prev => prev.filter(s => s.id !== stopId));
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}/stops/${stopId}`, {
@@ -115,7 +202,7 @@ export function useTrip(tripId) {
       if (!res.ok) throw new Error('Failed to delete stop');
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setStopsT]);
 
   const reorderStops = useCallback(async (newStops) => {
     // Compute sequential dates starting from the first stop's date (or today)
@@ -136,7 +223,7 @@ export function useTrip(tripId) {
       d.setDate(d.getDate() + idx);
       return { ...s, targetDate: d.toISOString() };
     });
-    setStops(withDates);
+    setStopsT(withDates);
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}/stops/reorder`, {
@@ -146,13 +233,13 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error('Failed to reorder');
       const data = await res.json();
-      if (data.stops) setStops(data.stops);
+      if (data.stops) setStopsT(data.stops);
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setStopsT]);
 
   const markReached = useCallback(async (stopId, reached = true) => {
-    setStops(prev => prev.map(s => s.id === stopId ? { ...s, reached, reachedAt: reached ? new Date().toISOString() : null } : s));
+    setStopsT(prev => prev.map(s => s.id === stopId ? { ...s, reached, reachedAt: reached ? new Date().toISOString() : null } : s));
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}/stops/${stopId}/reach`, {
@@ -162,10 +249,10 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error('Failed to update');
       const stop = await res.json();
-      setStops(prev => prev.map(s => s.id === stopId ? stop : s));
+      setStopsT(prev => prev.map(s => s.id === stopId ? stop : s));
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setStopsT]);
 
   const uploadStopPhoto = useCallback(async (stopId, photoDataUrl) => {
     markSaving();
@@ -177,13 +264,13 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to save photo');
       const stop = await res.json();
-      setStops(prev => prev.map(s => s.id === stopId ? stop : s));
+      setStopsT(prev => prev.map(s => s.id === stopId ? stop : s));
       // Update trip coverImage in local state
-      setTrip(prev => prev ? { ...prev, coverImage: photoDataUrl } : prev);
+      setTripT(prev => prev ? { ...prev, coverImage: photoDataUrl } : prev);
       markSaved();
       return stop;
     } catch (err) { markSaveError(); throw err; }
-  }, [tripId]);
+  }, [tripId, setStopsT, setTripT]);
 
   // ── Item mutations ─────────────────────────────────────────────────────────
 
@@ -197,14 +284,14 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const cat = await res.json();
-      setCategories(prev => [...prev, cat]);
+      setCategoriesT(prev => [...prev, cat]);
       markSaved();
       return cat;
     } catch (err) { markSaveError(); throw err; }
-  }, [tripId]);
+  }, [tripId, setCategoriesT]);
 
   const deleteCategory = useCallback(async (catId) => {
-    setCategories(prev => prev.filter(c => c.id !== catId));
+    setCategoriesT(prev => prev.filter(c => c.id !== catId));
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}/items/categories/${catId}`, {
@@ -213,7 +300,7 @@ export function useTrip(tripId) {
       if (!res.ok) throw new Error('Failed');
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setCategoriesT]);
 
   const addItem = useCallback(async (catId, itemData) => {
     // itemData can be a string (legacy) or object with { name, color, quantity, ... }
@@ -227,14 +314,14 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const item = await res.json();
-      setCategories(prev => prev.map(c => c.id === catId ? { ...c, items: [...c.items, item] } : c));
+      setCategoriesT(prev => prev.map(c => c.id === catId ? { ...c, items: [...c.items, item] } : c));
       markSaved();
       return item;
     } catch (err) { markSaveError(); throw err; }
-  }, [tripId]);
+  }, [tripId, setCategoriesT]);
 
   const updateItem = useCallback(async (catId, itemId, updates) => {
-    setCategories(prev => prev.map(c => c.id === catId
+    setCategoriesT(prev => prev.map(c => c.id === catId
       ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, ...updates } : i) }
       : c));
     markSaving();
@@ -247,10 +334,10 @@ export function useTrip(tripId) {
       if (!res.ok) throw new Error('Failed');
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setCategoriesT]);
 
   const deleteItem = useCallback(async (catId, itemId) => {
-    setCategories(prev => prev.map(c => c.id === catId
+    setCategoriesT(prev => prev.map(c => c.id === catId
       ? { ...c, items: c.items.filter(i => i.id !== itemId) }
       : c));
     markSaving();
@@ -261,7 +348,7 @@ export function useTrip(tripId) {
       if (!res.ok) throw new Error('Failed');
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setCategoriesT]);
 
   // ── Days mutations ─────────────────────────────────────────────────────────
 
@@ -275,14 +362,14 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const day = await res.json();
-      setDays(prev => [...prev, day]);
+      setDaysT(prev => [...prev, day]);
       markSaved();
       return day;
     } catch (err) { markSaveError(); throw err; }
-  }, [tripId]);
+  }, [tripId, setDaysT]);
 
   const updateDay = useCallback(async (dayId, updates) => {
-    setDays(prev => prev.map(d => d.id === dayId ? { ...d, ...updates } : d));
+    setDaysT(prev => prev.map(d => d.id === dayId ? { ...d, ...updates } : d));
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}/days/${dayId}`, {
@@ -292,19 +379,19 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error('Failed');
       const day = await res.json();
-      setDays(prev => prev.map(d => d.id === dayId ? day : d));
+      setDaysT(prev => prev.map(d => d.id === dayId ? day : d));
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setDaysT]);
 
   const deleteDay = useCallback(async (dayId) => {
-    setDays(prev => prev.filter(d => d.id !== dayId));
+    setDaysT(prev => prev.filter(d => d.id !== dayId));
     markSaving();
     try {
       await fetch(`${API}/api/trips/${tripId}/days/${dayId}`, { method: 'DELETE', credentials: 'include' });
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setDaysT]);
 
   const addEntry = useCallback(async (dayId, data) => {
     markSaving();
@@ -316,14 +403,14 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const entry = await res.json();
-      setDays(prev => prev.map(d => d.id === dayId ? { ...d, entries: [...(d.entries || []), entry] } : d));
+      setDaysT(prev => prev.map(d => d.id === dayId ? { ...d, entries: [...(d.entries || []), entry] } : d));
       markSaved();
       return entry;
     } catch (err) { markSaveError(); throw err; }
-  }, [tripId]);
+  }, [tripId, setDaysT]);
 
   const updateEntry = useCallback(async (dayId, entryId, updates) => {
-    setDays(prev => prev.map(d => d.id === dayId
+    setDaysT(prev => prev.map(d => d.id === dayId
       ? { ...d, entries: (d.entries || []).map(e => e.id === entryId ? { ...e, ...updates } : e) }
       : d));
     markSaving();
@@ -335,15 +422,15 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error('Failed');
       const entry = await res.json();
-      setDays(prev => prev.map(d => d.id === dayId
+      setDaysT(prev => prev.map(d => d.id === dayId
         ? { ...d, entries: (d.entries || []).map(e => e.id === entryId ? entry : e) }
         : d));
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setDaysT]);
 
   const deleteEntry = useCallback(async (dayId, entryId) => {
-    setDays(prev => prev.map(d => d.id === dayId
+    setDaysT(prev => prev.map(d => d.id === dayId
       ? { ...d, entries: (d.entries || []).filter(e => e.id !== entryId) }
       : d));
     markSaving();
@@ -351,7 +438,7 @@ export function useTrip(tripId) {
       await fetch(`${API}/api/trips/${tripId}/days/${dayId}/entries/${entryId}`, { method: 'DELETE', credentials: 'include' });
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setDaysT]);
 
   // ── Reservation mutations ──────────────────────────────────────────────────
 
@@ -365,10 +452,10 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const reservation = await res.json();
-      setReservations(prev => [...prev, reservation]);
+      setReservationsT(prev => [...prev, reservation]);
       // Also update entry in days if linked
       if (reservation.entryId) {
-        setDays(prev => prev.map(d => ({
+        setDaysT(prev => prev.map(d => ({
           ...d,
           entries: (d.entries || []).map(e => e.id === reservation.entryId ? { ...e, reservation } : e)
         })));
@@ -376,10 +463,10 @@ export function useTrip(tripId) {
       markSaved();
       return reservation;
     } catch (err) { markSaveError(); throw err; }
-  }, [tripId]);
+  }, [tripId, setReservationsT, setDaysT]);
 
   const updateReservation = useCallback(async (resId, updates) => {
-    setReservations(prev => prev.map(r => r.id === resId ? { ...r, ...updates } : r));
+    setReservationsT(prev => prev.map(r => r.id === resId ? { ...r, ...updates } : r));
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}/reservations/${resId}`, {
@@ -389,19 +476,19 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error('Failed');
       const reservation = await res.json();
-      setReservations(prev => prev.map(r => r.id === resId ? reservation : r));
+      setReservationsT(prev => prev.map(r => r.id === resId ? reservation : r));
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setReservationsT]);
 
   const deleteReservation = useCallback(async (resId) => {
-    setReservations(prev => prev.filter(r => r.id !== resId));
+    setReservationsT(prev => prev.filter(r => r.id !== resId));
     markSaving();
     try {
       await fetch(`${API}/api/trips/${tripId}/reservations/${resId}`, { method: 'DELETE', credentials: 'include' });
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setReservationsT]);
 
   // ── References ─────────────────────────────────────────────────────────────
 
@@ -415,14 +502,14 @@ export function useTrip(tripId) {
       });
       if (!res.ok) throw new Error((await res.json()).error);
       const newRef = await res.json();
-      setReferences(prev => [...prev, newRef]);
+      setReferencesT(prev => [...prev, newRef]);
       markSaved();
       return newRef;
     } catch (err) { markSaveError(); throw err; }
-  }, [tripId]);
+  }, [tripId, setReferencesT]);
 
   const deleteReference = useCallback(async (refId) => {
-    setReferences(prev => prev.filter(r => r.id !== refId));
+    setReferencesT(prev => prev.filter(r => r.id !== refId));
     markSaving();
     try {
       await fetch(`${API}/api/trips/${tripId}/references/${refId}`, {
@@ -430,10 +517,10 @@ export function useTrip(tripId) {
       });
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setReferencesT]);
 
   const updateTrip = useCallback(async (updates) => {
-    setTrip(prev => ({ ...prev, ...updates }));
+    setTripT(prev => ({ ...prev, ...updates }));
     markSaving();
     try {
       const res = await fetch(`${API}/api/trips/${tripId}`, {
@@ -444,7 +531,7 @@ export function useTrip(tripId) {
       if (!res.ok) throw new Error('Failed');
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load]);
+  }, [tripId, load, setTripT]);
 
   const deleteTrip = useCallback(async () => {
     markSaving();
@@ -458,7 +545,7 @@ export function useTrip(tripId) {
   }, [tripId]);
 
   return {
-    trip, stops, categories, references, days, reservations, loading, error, saveState,
+    trip, stops, categories, references, days, reservations, loading, error, saveState, isOffline,
     addStop, updateStop, deleteStop, reorderStops, markReached, uploadStopPhoto,
     addCategory, deleteCategory, addItem, updateItem, deleteItem,
     addDay, updateDay, deleteDay, addEntry, updateEntry, deleteEntry,

@@ -94,7 +94,7 @@ export default function TripWorkspace() {
   const { id } = useParams();
   const navigate = useNavigate();
   const tripData = useTrip(id);
-  const { trip, stops, categories, references, days, reservations, loading, error, saveState } = tripData;
+  const { trip, stops, categories, references, days, reservations, loading, error, saveState, isOffline } = tripData;
 
   const mapRef = useRef(null);
   const [activeTab, setActiveTab] = useState('map');
@@ -826,6 +826,12 @@ export default function TripWorkspace() {
         </div>
         <button className="ws-search-btn" onClick={() => setShowSearch(true)} aria-label="Search">🔍</button>
       </div>
+
+      {isOffline && (
+        <div className="ws-offline-banner" role="status">
+          📵 Offline — viewing cached trip data
+        </div>
+      )}
 
       {/* ── Main area ── */}
       <div className="ws-body">

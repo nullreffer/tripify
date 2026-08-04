@@ -1077,6 +1077,16 @@ body {
   font-size: 1.25rem; padding: .25rem;
 }
 
+.ws-offline-banner {
+  background: #f59e0b;
+  color: #1c1917;
+  text-align: center;
+  font-size: .82rem;
+  font-weight: 600;
+  padding: .35rem 1rem;
+  flex-shrink: 0;
+}
+
 /* Body (map + panels) */
 .ws-body { flex: 1; position: relative; overflow: hidden; }
 /* z-index: 1 creates a stacking context, containing all Leaflet z-indices (up to 1000) within this layer */
