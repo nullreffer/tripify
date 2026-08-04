@@ -52,10 +52,12 @@ export function useAuth() {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const ADMIN_EMAIL = 'iamjaydesai@gmail.com';
+const CACHED_USER_KEY = 'azitrip_cached_user';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL || user?.isAdmin;
   const isApproved = !user ? false : Boolean(user?.isApproved || isAdmin);
 
@@ -88,6 +90,12 @@ function App() {
     fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
+        if (data) {
+          localStorage.setItem(CACHED_USER_KEY, JSON.stringify(data));
+        } else {
+          // Logged out or session expired — clear cache
+          localStorage.removeItem(CACHED_USER_KEY);
+        }
         setUser(data);
         setLoading(false);
         // If they logged in to accept an invite, redirect back to it
@@ -99,7 +107,19 @@ function App() {
           }
         }
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        // Network error — try to use cached user for offline mode
+        const cached = localStorage.getItem(CACHED_USER_KEY);
+        if (cached) {
+          try {
+            setUser(JSON.parse(cached));
+            setIsOffline(true);
+          } catch {
+            // ignore corrupt cache
+          }
+        }
+        setLoading(false);
+      });
   }, []);
 
   if (loading) {
@@ -111,7 +131,7 @@ function App() {
   }
 
   return (
-    <AuthContext.Provider value={{ user, setUser }}>
+    <AuthContext.Provider value={{ user, setUser, isOffline }}>
       <BrowserRouter>
         <GaTracker />
         <Routes>

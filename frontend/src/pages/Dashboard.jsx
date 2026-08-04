@@ -6,12 +6,15 @@ import InviteModal from '../components/InviteModal.jsx';
 import MiniMap from '../components/import/MiniMap.jsx';
 import { searchLocations } from '../services/geocoding.js';
 import { PIN_TYPES, PIN_TYPE_LIST } from '../constants/pinTypes.js';
+import { useAuth } from '../App.jsx';
 
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+const CACHED_TRIPS_KEY = 'azitrip_cached_trips';
 
 function Dashboard() {
   const navigate = useNavigate();
+  const { isOffline } = useAuth();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -49,10 +52,22 @@ function Dashboard() {
     try {
       const res = await fetch(`${API_BASE}/api/trips`, { credentials: 'include' });
       if (res.ok) {
-        setTrips(await res.json());
+        const data = await res.json();
+        localStorage.setItem(CACHED_TRIPS_KEY, JSON.stringify(data));
+        setTrips(data);
       }
     } catch {
-      setError('Failed to load trips. Please refresh.');
+      // Network error — try cached trips
+      const cached = localStorage.getItem(CACHED_TRIPS_KEY);
+      if (cached) {
+        try {
+          setTrips(JSON.parse(cached));
+        } catch {
+          setError('Failed to load trips. Please refresh.');
+        }
+      } else {
+        setError('Failed to load trips. Please refresh.');
+      }
     } finally {
       setLoading(false);
     }
@@ -560,8 +575,14 @@ function Dashboard() {
   const isReviewStep = importMode && (importStep === 'review');
 
   return (
-    <div className="dashboard">
+    <div className={`dashboard${isOffline ? ' dashboard--offline' : ''}`}>
       <NavBar />
+
+      {isOffline && (
+        <div className="offline-banner" role="status">
+          📵 You're offline — showing your cached trips (read-only)
+        </div>
+      )}
 
       <main className="main-content">
         <div className="trips-header">

@@ -390,10 +390,28 @@ body {
 /* ─── Dashboard ─── */
 .dashboard { min-height: 100vh; background: var(--bg); }
 
+.offline-banner {
+  position: fixed;
+  top: var(--nav-height);
+  left: 0;
+  right: 0;
+  z-index: 900;
+  background: #f59e0b;
+  color: #1c1917;
+  text-align: center;
+  font-size: .85rem;
+  font-weight: 600;
+  padding: .45rem 1rem;
+}
+
 .main-content {
   padding: calc(var(--nav-height) + 1.75rem) 1.5rem 6rem;
   max-width: 1200px;
   margin: 0 auto;
+}
+
+.dashboard--offline .main-content {
+  padding-top: calc(var(--nav-height) + 2.75rem + 1.75rem);
 }
 
 /* ── Navbar logo drive-in animation (plays once on page load) ── */
