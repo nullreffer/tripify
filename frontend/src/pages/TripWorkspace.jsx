@@ -5,7 +5,7 @@ import { getRoute, formatDistance, formatDuration } from '../services/routing.js
 import { getSettings, useSettingsListener } from '../services/settings.js';
 import { searchNearby } from '../services/geocoding.js';
 import { getWeather, buildCurrentWeather, buildScheduledDayWeather } from '../services/weather.js';
-import { getAqiStatus, getAqiForStop, aqiMeta } from '../services/aqi.js';
+import { getAqiStatus, getAqiForStop, aqiMeta, getActiveFires } from '../services/aqi.js';
 import TripMap from '../components/map/TripMap.jsx';
 import StopList from '../components/stops/StopList.jsx';
 import StopSheet from '../components/stops/StopSheet.jsx';
@@ -131,6 +131,8 @@ export default function TripWorkspace() {
   const [aqiTilesAvailable, setAqiTilesAvailable] = useState(false);
   const [aqiLoading, setAqiLoading] = useState(false);
   const [mapAqiModal, setMapAqiModal] = useState(null);
+  const [mapFireModal, setMapFireModal] = useState(null);
+  const [fireData, setFireData] = useState([]);
   const mapSearchDebounce = useRef(null);
 
   // Photo prompt after reaching a stop
@@ -308,6 +310,11 @@ export default function TripWorkspace() {
       if (!cancelled) setAqiTilesAvailable(s.tilesAvailable);
     });
 
+    // Fetch active fire data in parallel with AQI grid
+    getActiveFires().then(fires => {
+      if (!cancelled) setFireData(Array.isArray(fires) ? fires : []);
+    });
+
     if (routeStops.length === 0) { setAqiGridData({}); return; }
 
     const { points, radiusMeters } = generateAqiGrid(routeStops);
@@ -327,7 +334,7 @@ export default function TripWorkspace() {
       setAqiLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [mapLayer, routeStops]);
+  }, [mapLayer, routeStops]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Map overlay handlers ─────────────────────────────────────────────
   const handleMyLocation = useCallback(() => {
@@ -378,7 +385,11 @@ export default function TripWorkspace() {
       const mapCenter = mapRef.current?.getCenter();
       const center = mapCenter ? { lat: mapCenter.lat, lng: mapCenter.lng } : null;
       const radiusMeters = (getSettings().searchRadiusMi ?? 100) * MI_TO_METERS;
-      const results = await searchNearby(val, center, radiusMeters);
+      const results = await searchNearby(val, center, radiusMeters, (partial) => {
+        // Show OSM results immediately while Google Places is still loading
+        setMapSearchResults(partial);
+        mapRef.current?.ensureSearchResultVisible(partial);
+      });
       setMapSearchResults(results);
       mapRef.current?.ensureSearchResultVisible(results);
       setMapSearching(false);
@@ -616,6 +627,22 @@ export default function TripWorkspace() {
     }));
   }, [mapLayer, aqiGridData]);
 
+  // Build fire pins — only shown on the AQI layer.
+  // When stops exist, limit to fires within a generous 1500 km radius of the trip centroid
+  // so we don't render tens of thousands of global detections.
+  const firePins = useMemo(() => {
+    if (mapLayer !== 'aqi' || !fireData.length) return [];
+    if (routeStops.length === 0) return fireData;
+    const lats = routeStops.map(s => s.lat);
+    const lngs = routeStops.map(s => s.lng);
+    const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+    const cLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+    const MAX_DEG = 1500 / 111; // ~1500 km in degrees (rough)
+    return fireData.filter(f =>
+      Math.abs(f.lat - cLat) <= MAX_DEG && Math.abs(f.lng - cLng) <= MAX_DEG
+    );
+  }, [mapLayer, fireData, routeStops]);
+
   // Stops that have been downloaded for offline use
   const offlinePins = useMemo(() => {
     if (mapLayer !== 'offline') return [];
@@ -694,7 +721,9 @@ export default function TripWorkspace() {
       // configured offline radius (miles → km → tiles at each zoom level).
       const radiusMi = settings.offlineRadiusMi ?? 5;
       const radiusKm = radiusMi * MI_TO_KM;
-      const zoomLevels = [8, 10, 12, 14];
+      // z=15 is included to capture street-level detail (gas stations, park names, etc.)
+      // but is tightly capped so it doesn't balloon the download.
+      const zoomLevels = [8, 10, 12, 14, 15];
       const urls = new Set();
 
       // Helper: add tile URLs for a lat/lng point at all zoom levels
@@ -706,14 +735,16 @@ export default function TripWorkspace() {
           // Number of tiles to extend in each direction (min 0, enough to cover the radius)
           const tileRadius = tileKm > 0 ? Math.max(0, Math.ceil(radiusKm / tileKm)) : 0;
           // Cap per-zoom radius to avoid runaway downloads at high zooms
-          const maxTileRadius = z >= 14 ? 4 : z >= 12 ? 6 : z >= 10 ? 3 : 1;
+          const maxTileRadius = z >= 15 ? 3 : z >= 14 ? 4 : z >= 12 ? 6 : z >= 10 ? 3 : 1;
           const r = Math.min(tileRadius, maxTileRadius);
           for (let dx = -r; dx <= r; dx++) {
             for (let dy = -r; dy <= r; dy++) {
               const tx = center.x + dx;
               const ty = center.y + dy;
-              // Standard OSM (normal map)
+              // OSM Standard tiles — matches the live normal (light) map
               urls.add(`https://tile.openstreetmap.org/${z}/${tx}/${ty}.png`);
+              // CARTO dark — matches the live normal (dark) map
+              urls.add(`https://a.basemaps.cartocdn.com/dark_all/${z}/${tx}/${ty}.png`);
               // Satellite (ArcGIS) — note tile URL uses z/y/x order
               urls.add(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${ty}/${tx}`);
               // Trails (OpenTopoMap)
@@ -777,7 +808,7 @@ export default function TripWorkspace() {
         estimatedSizeMB: Math.round((totalUrls * 15) / 1024 * 10) / 10,
       };
       localStorage.setItem(`tripify-offline-${id}`, JSON.stringify(snapshot));
-      setOfflineStatus(`Downloaded ~${totalUrls} tiles (${radiusMi} mi radius, including route corridor) across normal, satellite, and trail maps.`);
+      setOfflineStatus(`Downloaded ~${totalUrls} tiles (${radiusMi} mi radius, including route corridor) across normal, dark, satellite, and trail maps.`);
     } catch {
       setOfflineStatus('Offline prep partially completed.');
     } finally {
@@ -870,6 +901,8 @@ export default function TripWorkspace() {
                 pm10: pin.pm10,
               });
             }}
+            firePins={firePins}
+            onFirePinClick={pin => setMapFireModal(pin)}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -1398,6 +1431,50 @@ export default function TripWorkspace() {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {mapFireModal && (
+        <div className="sheet-overlay" onClick={() => setMapFireModal(null)}>
+          <div className="sheet sheet-sm" onClick={e => e.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-header">
+              <h3>🔥 Active Fire</h3>
+              <button className="sheet-close" onClick={() => setMapFireModal(null)}>×</button>
+            </div>
+            <div className="sheet-body">
+              <div className="sheet-detail-row">
+                📍 {mapFireModal.lat.toFixed(4)}, {mapFireModal.lng.toFixed(4)}
+              </div>
+              {mapFireModal.acq_date && (
+                <div className="sheet-detail-row">
+                  🗓 Detected: {mapFireModal.acq_date}{mapFireModal.acq_time ? ` at ${mapFireModal.acq_time.padStart(4, '0').replace(/(\d{2})(\d{2})/, '$1:$2')} UTC` : ''}
+                </div>
+              )}
+              {mapFireModal.confidence != null && (
+                <div className="sheet-detail-row">
+                  🎯 Confidence: {mapFireModal.confidence}
+                </div>
+              )}
+              {mapFireModal.frp != null && (
+                <div className="sheet-detail-row">
+                  ⚡ Fire Radiative Power: {Number(mapFireModal.frp).toFixed(1)} MW
+                </div>
+              )}
+              {mapFireModal.brightness != null && (
+                <div className="sheet-detail-row">
+                  🌡 Brightness: {Number(mapFireModal.brightness).toFixed(1)} K
+                </div>
+              )}
+              {mapFireModal.satellite && (
+                <div className="sheet-detail-row">
+                  🛰 Satellite: {mapFireModal.satellite}
+                </div>
+              )}
+              <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+                Data: NASA FIRMS (last 24 h)
+              </div>
             </div>
           </div>
         </div>
