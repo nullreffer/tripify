@@ -40,7 +40,10 @@ export default function MiniMap({ lat, lng, pinType }) {
       dragging={false}
       doubleClickZoom={false}
     >
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      <TileLayer
+        url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
+      />
       <Marker position={[lat, lng]} icon={icon} />
       <PanTo lat={lat} lng={lng} />
     </MapContainer>
