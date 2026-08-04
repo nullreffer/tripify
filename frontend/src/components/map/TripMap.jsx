@@ -389,10 +389,10 @@ const TripMap = forwardRef(function TripMap(
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
       }
       : {
-        // OpenStreetMap Standard tiles — rich POI labels (parks, gas stations, lakes,
-        // road names, etc.) visible at zoom 12+ unlike the CARTO Voyager style.
-        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        // CARTO Voyager — renders street names, gas stations, hotels, restaurants
+        // and other POI icons starting at zoom 14.
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
       },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
