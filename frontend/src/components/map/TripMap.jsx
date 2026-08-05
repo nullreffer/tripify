@@ -385,24 +385,26 @@ const TripMap = forwardRef(function TripMap(
   const tileLayerByMode = {
     normal: darkMode
       ? {
-        // CARTO Dark Matter — dark base with street names and POI icons (gas stations,
-        // hotels, restaurants, etc.) visible at zoom 14+.
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_matter/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+        // Stadia Alidade Smooth Dark — progressive labels: countries/oceans at z2,
+        // cities/states at z4, national parks/lakes/rivers at z6-8,
+        // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
+        url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }
       : {
-        // CARTO Voyager — light base with street names and POI icons (gas stations,
-        // hotels, restaurants, etc.) visible at zoom 14+.
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+        // Stadia Alidade Smooth — progressive labels: countries/oceans at z2,
+        // cities/states at z4, national parks/lakes/rivers at z6-8,
+        // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
+        url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
       // Label overlay so city/street names appear on top of satellite imagery
       labelOverlay: {
-        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+        url: 'https://tiles.stadiamaps.com/tiles/stamen_toner_labels/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>',
       },
     },
     trails: {
