@@ -6,6 +6,8 @@ import { PIN_TYPES } from '../../constants/pinTypes.js';
 import { getLocationGroupKey } from '../../constants/map.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+const STADIA_API_KEY = import.meta.env.VITE_STADIA_API_KEY || '';
+const stadiaUrl = (path) => STADIA_API_KEY ? `${path}?api_key=${STADIA_API_KEY}` : path;
 
 // Fix Leaflet default icon paths (broken in Vite builds)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -388,14 +390,14 @@ const TripMap = forwardRef(function TripMap(
         // Stadia Alidade Smooth Dark — progressive labels: countries/oceans at z2,
         // cities/states at z4, national parks/lakes/rivers at z6-8,
         // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
-        url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
+        url: stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'),
         attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }
       : {
         // Stadia Alidade Smooth — progressive labels: countries/oceans at z2,
         // cities/states at z4, national parks/lakes/rivers at z6-8,
         // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
-        url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png',
+        url: stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png'),
         attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
     satellite: {
@@ -403,7 +405,7 @@ const TripMap = forwardRef(function TripMap(
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
       // Label overlay so city/street names appear on top of satellite imagery
       labelOverlay: {
-        url: 'https://tiles.stadiamaps.com/tiles/stamen_toner_labels/{z}/{x}/{y}{r}.png',
+        url: stadiaUrl('https://tiles.stadiamaps.com/tiles/stamen_toner_labels/{z}/{x}/{y}{r}.png'),
         attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>',
       },
     },
