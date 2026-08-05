@@ -385,14 +385,16 @@ const TripMap = forwardRef(function TripMap(
   const tileLayerByMode = {
     normal: darkMode
       ? {
-        url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        // CARTO Dark Matter — dark base with street names and POI icons (gas stations,
+        // hotels, restaurants, etc.) visible at zoom 14+.
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_matter/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
       }
       : {
-        // OpenStreetMap Standard tiles — rich POI labels (parks, gas stations, lakes,
-        // road names, etc.) visible at zoom 12+ unlike the CARTO Voyager style.
-        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        // CARTO Voyager — light base with street names and POI icons (gas stations,
+        // hotels, restaurants, etc.) visible at zoom 14+.
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
       },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
