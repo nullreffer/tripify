@@ -2916,6 +2916,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: .75rem;
+  height: 100%;
+  overflow-y: auto;
+  padding: 1rem;
 }
 .gallery-header {
   display: flex;

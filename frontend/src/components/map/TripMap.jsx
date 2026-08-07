@@ -107,6 +107,55 @@ function makeFireIcon() {
 // Overridden at runtime by an adaptive value computed from the trip bounding box.
 const AQI_OVERLAY_RADIUS_METERS_DEFAULT = 50000;
 
+function makeAttractionIcon(name) {
+  const rawLabel = name ? name.slice(0, 20) : '';
+  // Escape HTML to prevent XSS from OSM tag values
+  const label = rawLabel
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const html = `<div style="
+    position:relative;
+    display:flex;flex-direction:column;align-items:center;
+    pointer-events:none;
+  ">
+    <div style="
+      width:30px;height:30px;border-radius:50%;
+      background:#7c3aed;border:2.5px solid #fff;
+      box-shadow:0 2px 8px rgba(0,0,0,.35);
+      display:flex;align-items:center;justify-content:center;
+      font-size:14px;
+    ">⭐</div>
+    ${label ? `<div style="
+      margin-top:2px;background:rgba(15,23,42,0.85);color:#fff;
+      font-size:9px;font-weight:600;border-radius:4px;padding:1px 4px;
+      white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;
+      border:1px solid rgba(255,255,255,0.2);
+    ">${label}</div>` : ''}
+  </div>`;
+  return L.divIcon({ html, className: '', iconSize: [30, 46], iconAnchor: [15, 30], popupAnchor: [0, -32] });
+}
+
+// Reports map bounds + zoom to parent whenever the user pans or zooms
+function MapBoundsTracker({ onBoundsChange }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!onBoundsChange) return;
+    const report = () => onBoundsChange(map.getBounds(), map.getZoom());
+    map.on('moveend', report);
+    map.on('zoomend', report);
+    // Fire once on mount so the parent has initial state
+    report();
+    return () => {
+      map.off('moveend', report);
+      map.off('zoomend', report);
+    };
+  }, [map, onBoundsChange]);
+  return null;
+}
+
 // ── AQI gradient helpers ──────────────────────────────────────────────────────
 function hexToRgb(hex) {
   const v = hex.replace('#', '');
@@ -358,7 +407,8 @@ const TripMap = forwardRef(function TripMap(
     offlinePins = [], offlineRadiusMeters = 8047,
     aqiPins = [], onAqiPinClick, aqiTilesAvailable = false,
     aqiOverlayRadiusMeters = AQI_OVERLAY_RADIUS_METERS_DEFAULT,
-    firePins = [], onFirePinClick },
+    firePins = [], onFirePinClick,
+    attractionPins = [], onAttractionPinClick, onBoundsChange },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -448,6 +498,7 @@ const TripMap = forwardRef(function TripMap(
         <LongPressHandler onLongPress={onLongPress} />
         <MapTapHandler onMapTap={onMapTap} />
         <MapRefCapture ref={mapRef} stops={stops} />
+        <MapBoundsTracker onBoundsChange={onBoundsChange} />
 
         {userLocation && (
           <Marker position={userLocation} icon={makeLocationIcon()} />
@@ -526,12 +577,22 @@ const TripMap = forwardRef(function TripMap(
             eventHandlers={onFirePinClick ? { click: () => onFirePinClick(pin) } : {}}
           />
         ))}
+
+        {/* Attraction / POI pins */}
+        {attractionPins.map(pin => (
+          <Marker
+            key={`attraction-${pin.id}`}
+            position={[pin.lat, pin.lng]}
+            icon={makeAttractionIcon(pin.name)}
+            eventHandlers={onAttractionPinClick ? { click: () => onAttractionPinClick(pin) } : {}}
+          />
+        ))}
       </MapContainer>
 
       {/* AQI legend */}
       {isAqiLayer && (
         <div style={{
-          position: 'absolute', bottom: '80px', left: '10px', zIndex: 1000,
+          position: 'absolute', bottom: '140px', left: '10px', zIndex: 1000,
           background: 'rgba(15,23,42,0.9)', borderRadius: '10px', padding: '8px 12px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.4)', fontSize: '11px', color: '#fff',
           pointerEvents: 'none',
