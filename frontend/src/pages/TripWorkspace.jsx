@@ -142,6 +142,11 @@ export default function TripWorkspace() {
   const [fireIntensityMin, setFireIntensityMin] = useState(0); // min FRP (MW) to show; 0 = all
   const mapSearchDebounce = useRef(null);
 
+  // Attractions (POI) pins loaded from Overpass API on map pan/zoom
+  const [attractionPins, setAttractionPins] = useState([]);
+  const [selectedAttraction, setSelectedAttraction] = useState(null);
+  const attractionDebounce = useRef(null);
+
   // Photo prompt after reaching a stop
   const [photoPromptStop, setPhotoPromptStop] = useState(null);
   const photoFileRef = useRef(null);
@@ -715,6 +720,66 @@ export default function TripWorkspace() {
     }
   }, []);
 
+  // Min zoom level at which attraction pins are fetched
+  const ATTRACTIONS_MIN_ZOOM = 10;
+  const ATTRACTIONS_TOP_N = 10;
+
+  // Score a POI element by importance (higher = more prominent)
+  const attractionScore = (el) => {
+    const t = el.tags || {};
+    let score = 0;
+    if (t.wikipedia) score += 30;
+    if (t.wikidata) score += 20;
+    if (t['name:en']) score += 10;
+    if (t.name) score += 5;
+    if (t.tourism === 'attraction') score += 8;
+    if (t.tourism === 'viewpoint') score += 4;
+    if (t.historic) score += 6;
+    if (t.leisure === 'nature_reserve') score += 4;
+    if (t.natural === 'peak') score += 7;
+    if (t.natural === 'waterfall') score += 7;
+    return score;
+  };
+
+  const handleBoundsChange = useCallback((bounds, zoom) => {
+    if (activeTab !== 'map') return;
+    clearTimeout(attractionDebounce.current);
+    if (zoom < ATTRACTIONS_MIN_ZOOM) {
+      setAttractionPins([]);
+      return;
+    }
+    attractionDebounce.current = setTimeout(async () => {
+      const s = bounds.getSouth().toFixed(4);
+      const w = bounds.getWest().toFixed(4);
+      const n = bounds.getNorth().toFixed(4);
+      const e = bounds.getEast().toFixed(4);
+      const query = `[out:json][timeout:10];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center 50;`;
+      try {
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `data=${encodeURIComponent(query)}`,
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const elements = (data.elements || []).filter(el => el.tags?.name);
+        elements.sort((a, b) => attractionScore(b) - attractionScore(a));
+        const top = elements.slice(0, ATTRACTIONS_TOP_N).map(el => ({
+          id: `${el.type}-${el.id}`,
+          name: el.tags['name:en'] || el.tags.name,
+          lat: el.lat ?? el.center?.lat,
+          lng: el.lon ?? el.center?.lon,
+          wikipedia: el.tags.wikipedia,
+          wikidata: el.tags.wikidata,
+          tags: el.tags,
+        })).filter(p => p.lat != null && p.lng != null);
+        setAttractionPins(top);
+      } catch {
+        // silently ignore network errors for attractions
+      }
+    }, 600);
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const prepareOffline = useCallback(async () => {
     try {
       setOfflinePreparing(true);
@@ -753,10 +818,13 @@ export default function TripWorkspace() {
               const ty = center.y + dy;
               // Stadia Alidade Smooth (light) — matches the live normal (light) map
               urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/alidade_smooth/${z}/${tx}/${ty}.png`));
+              urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/alidade_smooth/${z}/${tx}/${ty}@2x.png`));
               // Stadia Alidade Smooth Dark — matches the live normal (dark) map
               urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/${z}/${tx}/${ty}.png`));
+              urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/${z}/${tx}/${ty}@2x.png`));
               // Stadia Toner Labels — label overlay used on satellite view
               urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/stamen_toner_labels/${z}/${tx}/${ty}.png`));
+              urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/stamen_toner_labels/${z}/${tx}/${ty}@2x.png`));
               // Satellite (ArcGIS) — note tile URL uses z/y/x order
               urls.add(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${ty}/${tx}`);
               // Trails (OpenTopoMap)
@@ -921,6 +989,9 @@ export default function TripWorkspace() {
             }}
             firePins={firePins}
             onFirePinClick={pin => setMapFireModal(pin)}
+            attractionPins={attractionPins}
+            onAttractionPinClick={pin => setSelectedAttraction(pin)}
+            onBoundsChange={handleBoundsChange}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -1516,6 +1587,65 @@ export default function TripWorkspace() {
               )}
               <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
                 Data: NASA FIRMS (last 24 h)
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Attraction detail sheet ── */}
+      {selectedAttraction && (
+        <div className="sheet-overlay" onClick={() => setSelectedAttraction(null)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-header">
+              <span className="sheet-title">⭐ {selectedAttraction.name}</span>
+              <button className="sheet-close" onClick={() => setSelectedAttraction(null)}>✕</button>
+            </div>
+            <div className="sheet-body">
+              {selectedAttraction.tags?.tourism && (
+                <div className="sheet-detail-row">🏷 {selectedAttraction.tags.tourism}</div>
+              )}
+              {selectedAttraction.tags?.historic && (
+                <div className="sheet-detail-row">🏛 Historic: {selectedAttraction.tags.historic}</div>
+              )}
+              {selectedAttraction.tags?.natural && (
+                <div className="sheet-detail-row">🌿 Natural: {selectedAttraction.tags.natural}</div>
+              )}
+              {selectedAttraction.wikipedia && (() => {
+                const [lang, ...rest] = selectedAttraction.wikipedia.split(':');
+                const wikiLang = rest.length ? lang : 'en';
+                const article = rest.length ? rest.join(':') : lang;
+                return (
+                  <div className="sheet-detail-row">
+                    <a
+                      href={`https://${wikiLang}.wikipedia.org/wiki/${encodeURIComponent(article)}`}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{ color: 'var(--primary)' }}
+                    >
+                      📖 Wikipedia
+                    </a>
+                  </div>
+                );
+              })()}
+              <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+                📍 {selectedAttraction.lat.toFixed(5)}, {selectedAttraction.lng.toFixed(5)}
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button
+                  className="btn-primary btn-sm"
+                  onClick={() => {
+                    setSelectedAttraction(null);
+                    setShowSearch({
+                      prefill: {
+                        lat: selectedAttraction.lat,
+                        lng: selectedAttraction.lng,
+                        name: selectedAttraction.name,
+                      },
+                    });
+                  }}
+                >
+                  + Add as stop
+                </button>
               </div>
             </div>
           </div>

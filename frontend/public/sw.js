@@ -1,6 +1,6 @@
 const CACHE = 'azitrip-v1';
 const TILE_CACHE = 'tripify-tiles-v1';
-const TILE_MAX = 500;
+const TILE_MAX = 5000;
 const PRECACHE = ['/', '/index.html'];
 
 // Hostname patterns for map tile providers used by the app
