@@ -3018,6 +3018,26 @@ body {
 .slideshow-nav-btn:hover { background: var(--bg-alt, #f3f4f6); }
 .slideshow-open-btn { font-size: .8rem; }
 
+.slideshow-delete {
+  position: absolute;
+  bottom: .6rem;
+  right: .7rem;
+  background: rgba(239,68,68,.8);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  font-size: .95rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+.slideshow-delete:hover:not(:disabled) { background: rgba(220,38,38,.95); }
+.slideshow-delete:disabled { opacity: .6; cursor: default; }
+
 .more-danger-zone {
   border-color: #ef444430 !important;
 }

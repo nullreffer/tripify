@@ -1242,6 +1242,11 @@ export default function TripWorkspace() {
                 stops={stops}
                 onBack={() => setActiveTab('more')}
                 onOpenStop={stop => handleOpenStop(stop)}
+                onDeletePhoto={async (stop) => {
+                  const updatedMeta = { ...stop.metadata };
+                  delete updatedMeta.photo;
+                  await tripData.updateStop(stop.id, { metadata: updatedMeta });
+                }}
               />
             )}
           </div>
