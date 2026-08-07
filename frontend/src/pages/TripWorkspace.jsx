@@ -31,7 +31,13 @@ const MAP_CONTROLS_BOTTOM = '12px';
 const MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP = '160px';
 const ALLTRAILS_MIN_ZOOM = 2;
 const ALLTRAILS_MAX_ZOOM = 18;
-const OFFLINE_CACHE_NAME = 'tripify-map-tiles-v1';
+const OFFLINE_CACHE_NAME = 'tripify-tiles-v1';
+const STADIA_API_KEY = import.meta.env.VITE_STADIA_API_KEY || '';
+const stadiaOfflineUrl = (path) => STADIA_API_KEY ? `${path}?api_key=${STADIA_API_KEY}` : path;
+// Fire Radiative Power (FRP) thresholds in MW used by the intensity filter
+const FIRE_FRP_MODERATE = 10;
+const FIRE_FRP_HIGH = 50;
+const FIRE_FRP_EXTREME = 100;
 const MI_TO_KM = 1.60934;
 const MI_TO_METERS = 1609.34;
 // Earth's equatorial circumference in km (used for tile-size estimation)
@@ -133,6 +139,7 @@ export default function TripWorkspace() {
   const [mapAqiModal, setMapAqiModal] = useState(null);
   const [mapFireModal, setMapFireModal] = useState(null);
   const [fireData, setFireData] = useState([]);
+  const [fireIntensityMin, setFireIntensityMin] = useState(0); // min FRP (MW) to show; 0 = all
   const mapSearchDebounce = useRef(null);
 
   // Photo prompt after reaching a stop
@@ -632,16 +639,19 @@ export default function TripWorkspace() {
   // so we don't render tens of thousands of global detections.
   const firePins = useMemo(() => {
     if (mapLayer !== 'aqi' || !fireData.length) return [];
-    if (routeStops.length === 0) return fireData;
+    const byIntensity = fireIntensityMin > 0
+      ? fireData.filter(f => f.frp != null && f.frp >= fireIntensityMin)
+      : fireData;
+    if (routeStops.length === 0) return byIntensity;
     const lats = routeStops.map(s => s.lat);
     const lngs = routeStops.map(s => s.lng);
     const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
     const cLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
     const MAX_DEG = 1500 / 111; // ~1500 km in degrees (rough)
-    return fireData.filter(f =>
+    return byIntensity.filter(f =>
       Math.abs(f.lat - cLat) <= MAX_DEG && Math.abs(f.lng - cLng) <= MAX_DEG
     );
-  }, [mapLayer, fireData, routeStops]);
+  }, [mapLayer, fireData, fireIntensityMin, routeStops]);
 
   // Stops that have been downloaded for offline use
   const offlinePins = useMemo(() => {
@@ -741,10 +751,12 @@ export default function TripWorkspace() {
             for (let dy = -r; dy <= r; dy++) {
               const tx = center.x + dx;
               const ty = center.y + dy;
-              // OSM Standard tiles — matches the live normal (light) map
-              urls.add(`https://tile.openstreetmap.org/${z}/${tx}/${ty}.png`);
-              // CARTO dark — matches the live normal (dark) map
-              urls.add(`https://a.basemaps.cartocdn.com/dark_all/${z}/${tx}/${ty}.png`);
+              // Stadia Alidade Smooth (light) — matches the live normal (light) map
+              urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/alidade_smooth/${z}/${tx}/${ty}.png`));
+              // Stadia Alidade Smooth Dark — matches the live normal (dark) map
+              urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/${z}/${tx}/${ty}.png`));
+              // Stadia Toner Labels — label overlay used on satellite view
+              urls.add(stadiaOfflineUrl(`https://tiles.stadiamaps.com/tiles/stamen_toner_labels/${z}/${tx}/${ty}.png`));
               // Satellite (ArcGIS) — note tile URL uses z/y/x order
               urls.add(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${ty}/${tx}`);
               // Trails (OpenTopoMap)
@@ -1066,6 +1078,25 @@ export default function TripWorkspace() {
           )}
           {aqiLoading && mapLayer === 'aqi' && (
             <div className="ws-offline-status">Loading air quality data…</div>
+          )}
+          {mapLayer === 'aqi' && !aqiLoading && fireData.length > 0 && (
+            <div className="ws-fire-filter">
+              <span className="ws-fire-filter-label">🔥 Fire intensity:</span>
+              {[
+                { label: 'All', value: 0 },
+                { label: 'Moderate+', value: FIRE_FRP_MODERATE },
+                { label: 'High+', value: FIRE_FRP_HIGH },
+                { label: 'Extreme', value: FIRE_FRP_EXTREME },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  className={`ws-fire-filter-btn${fireIntensityMin === opt.value ? ' active' : ''}`}
+                  onClick={() => setFireIntensityMin(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           )}
           {offlineStatus && <div className="ws-offline-status">{offlineStatus}</div>}
 

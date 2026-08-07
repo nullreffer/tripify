@@ -122,6 +122,7 @@ function CategorySection({ cat, onAddItem, onUpdateItem, onDeleteItem, onDeleteC
   const [open, setOpen] = useState(true);
   const packed = cat.items?.filter(i => i.status === 'packed' || i.done).length || 0;
   const total = cat.items?.length || 0;
+  const allPacked = total > 0 && packed === total;
 
   const addItem = async () => {
     const n = newItemName.trim();
@@ -130,12 +131,21 @@ function CategorySection({ cat, onAddItem, onUpdateItem, onDeleteItem, onDeleteC
     await onAddItem(cat.id, { name: n });
   };
 
+  const markAllPacked = async (e) => {
+    e.stopPropagation();
+    const unpacked = cat.items?.filter(i => i.status !== 'packed' && !i.done) || [];
+    await Promise.allSettled(unpacked.map(item => onUpdateItem(cat.id, item.id, { status: 'packed', done: true })));
+  };
+
   return (
     <div className="items-category">
       <div className="cat-header" onClick={() => setOpen(o => !o)}>
         <span className="cat-toggle">{open ? '▾' : '▸'}</span>
         <span className="cat-name">{cat.name}</span>
         <span className="cat-progress">{packed}/{total} packed</span>
+        {canEdit && total > 0 && !allPacked && (
+          <button className="cat-mark-all-btn" onClick={markAllPacked} title="Mark all packed">✅</button>
+        )}
         {canEdit && (
           <button className="cat-del-btn" onClick={e => { e.stopPropagation(); if (confirm(`Delete "${cat.name}"?`)) onDeleteCategory(cat.id); }}>×</button>
         )}
