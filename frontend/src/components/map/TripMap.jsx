@@ -444,6 +444,8 @@ const TripMap = forwardRef(function TripMap(
         // Stadia Alidade Smooth Dark — progressive labels: countries/oceans at z2,
         // cities/states at z4, national parks/lakes/rivers at z6-8,
         // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
+        // When OSM provider is selected we fall back to the standard OSM tile style
+        // because OpenStreetMap.org does not offer a dark-mode tile variant.
         url: mapTileProvider === 'osm' ? osmNormalUrl : stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'),
         attribution: mapTileProvider === 'osm' ? osmAttribution : '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }
