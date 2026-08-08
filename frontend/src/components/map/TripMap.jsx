@@ -408,7 +408,8 @@ const TripMap = forwardRef(function TripMap(
     aqiPins = [], onAqiPinClick, aqiTilesAvailable = false,
     aqiOverlayRadiusMeters = AQI_OVERLAY_RADIUS_METERS_DEFAULT,
     firePins = [], onFirePinClick,
-    attractionPins = [], onAttractionPinClick, onBoundsChange },
+    attractionPins = [], onAttractionPinClick, onBoundsChange,
+    mapTileProvider = 'stadia' },
   mapRef
 ) {
   const nextStop = stops.find(s => !s.reached);
@@ -434,21 +435,26 @@ const TripMap = forwardRef(function TripMap(
     ? `${API_BASE}/api/aqi/tile/{z}/{x}/{y}`
     : null;
 
+  const osmNormalUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const osmAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
   const tileLayerByMode = {
     normal: darkMode
       ? {
         // Stadia Alidade Smooth Dark — progressive labels: countries/oceans at z2,
         // cities/states at z4, national parks/lakes/rivers at z6-8,
         // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
-        url: stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'),
-        attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        // When OSM provider is selected we fall back to the standard OSM tile style
+        // because OpenStreetMap.org does not offer a dark-mode tile variant.
+        url: mapTileProvider === 'osm' ? osmNormalUrl : stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'),
+        attribution: mapTileProvider === 'osm' ? osmAttribution : '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }
       : {
         // Stadia Alidade Smooth — progressive labels: countries/oceans at z2,
         // cities/states at z4, national parks/lakes/rivers at z6-8,
         // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
-        url: stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png'),
-        attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        url: mapTileProvider === 'osm' ? osmNormalUrl : stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png'),
+        attribution: mapTileProvider === 'osm' ? osmAttribution : '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',

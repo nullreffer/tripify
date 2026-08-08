@@ -738,6 +738,8 @@ export default function TripWorkspace() {
     if (t.leisure === 'nature_reserve') score += 4;
     if (t.natural === 'peak') score += 7;
     if (t.natural === 'waterfall') score += 7;
+    if (t.natural === 'geyser') score += 9;
+    if (t.natural === 'hot_spring') score += 6;
     return score;
   };
 
@@ -753,7 +755,7 @@ export default function TripWorkspace() {
       const w = bounds.getWest().toFixed(4);
       const n = bounds.getNorth().toFixed(4);
       const e = bounds.getEast().toFixed(4);
-      const query = `[out:json][timeout:10];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center 50;`;
+      const query = `[out:json][timeout:10];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["natural"="geyser"]["name"](${s},${w},${n},${e});node["natural"="hot_spring"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center 50;`;
       try {
         const res = await fetch('https://overpass-api.de/api/interpreter', {
           method: 'POST',
@@ -992,6 +994,7 @@ export default function TripWorkspace() {
             attractionPins={attractionPins}
             onAttractionPinClick={pin => setSelectedAttraction(pin)}
             onBoundsChange={handleBoundsChange}
+            mapTileProvider={settings.mapTileProvider ?? 'stadia'}
           />
 
           {/* ── Map overlay control buttons ── */}
