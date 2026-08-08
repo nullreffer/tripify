@@ -720,9 +720,7 @@ export default function TripWorkspace() {
     }
   }, []);
 
-  // Min zoom level at which attraction pins are fetched
-  const ATTRACTIONS_MIN_ZOOM = 10;
-  const ATTRACTIONS_TOP_N = 10;
+  const ATTRACTIONS_TOP_N = 20;
 
   // Score a POI element by importance (higher = more prominent)
   const attractionScore = (el) => {
@@ -746,23 +744,24 @@ export default function TripWorkspace() {
   const handleBoundsChange = useCallback((bounds, zoom) => {
     if (activeTab !== 'map') return;
     clearTimeout(attractionDebounce.current);
-    if (zoom < ATTRACTIONS_MIN_ZOOM) {
-      setAttractionPins([]);
-      return;
-    }
     attractionDebounce.current = setTimeout(async () => {
       const s = bounds.getSouth().toFixed(4);
       const w = bounds.getWest().toFixed(4);
       const n = bounds.getNorth().toFixed(4);
       const e = bounds.getEast().toFixed(4);
-      const query = `[out:json][timeout:10];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["natural"="geyser"]["name"](${s},${w},${n},${e});node["natural"="hot_spring"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center 50;`;
+      // Request more results when zoomed out so we have enough candidates to rank
+      const outLimit = zoom < 10 ? 100 : 50;
+      const query = `[out:json][timeout:15];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["natural"="geyser"]["name"](${s},${w},${n},${e});node["natural"="hot_spring"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center ${outLimit};`;
       try {
         const res = await fetch('https://overpass-api.de/api/interpreter', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: `data=${encodeURIComponent(query)}`,
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.warn(`[attractions] Overpass HTTP error ${res.status} (zoom=${zoom}, bounds=${s},${w},${n},${e})`);
+          return;
+        }
         const data = await res.json();
         const elements = (data.elements || []).filter(el => el.tags?.name);
         elements.sort((a, b) => attractionScore(b) - attractionScore(a));
@@ -776,8 +775,8 @@ export default function TripWorkspace() {
           tags: el.tags,
         })).filter(p => p.lat != null && p.lng != null);
         setAttractionPins(top);
-      } catch {
-        // silently ignore network errors for attractions
+      } catch (err) {
+        console.warn(`[attractions] Overpass fetch failed (zoom=${zoom}, bounds=${s},${w},${n},${e}):`, err.message);
       }
     }, 600);
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
