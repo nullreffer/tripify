@@ -1,12 +1,13 @@
 const KEY = 'azitrip-settings';
 
 export const DEFAULTS = {
-  units: 'imperial',      // 'imperial' | 'metric'
-  mapStyle: 'auto',       // 'auto' | 'light' | 'dark'
-  orientation: 'portrait', // 'portrait' | 'auto'
-  pinTapZoom: 15,          // zoom level when tapping a pin (10–18)
-  offlineRadiusMi: 5,      // radius in miles for offline tile download
-  searchRadiusMi: 100,     // radius in miles for map area search
+  units: 'imperial',         // 'imperial' | 'metric'
+  mapStyle: 'auto',          // 'auto' | 'light' | 'dark'
+  mapTileProvider: 'stadia', // 'stadia' | 'osm'
+  orientation: 'portrait',   // 'portrait' | 'auto'
+  pinTapZoom: 15,             // zoom level when tapping a pin (10–18)
+  offlineRadiusMi: 5,         // radius in miles for offline tile download
+  searchRadiusMi: 100,        // radius in miles for map area search
 };
 
 export function getSettings() {

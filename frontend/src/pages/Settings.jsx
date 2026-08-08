@@ -97,6 +97,17 @@ export default function Settings() {
             </div>
             <div className="settings-row">
               <div className="settings-row-label">
+                <span>Map tile provider</span>
+                <span className="settings-row-hint">Stadia Maps (styled) or OpenStreetMap (standard)</span>
+              </div>
+              <ToggleGroup
+                value={settings.mapTileProvider ?? 'stadia'}
+                options={[{ value: 'stadia', label: 'Stadia' }, { value: 'osm', label: 'OSM' }]}
+                onChange={v => update('mapTileProvider', v)}
+              />
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
                 <span>Zoom when tapping a pin</span>
                 <span className="settings-row-hint">
                   How far to zoom in when you tap a stop on the map (10 = far, 18 = street level). Currently: {settings.pinTapZoom ?? 15}
