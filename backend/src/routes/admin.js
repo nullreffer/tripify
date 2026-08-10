@@ -4,6 +4,8 @@ const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
 const { getSnapshot } = require('../middleware/metrics');
 
+const pkg = require('../../package.json');
+
 const prisma = new PrismaClient();
 const router = express.Router();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'iamjaydesai@gmail.com').trim().toLowerCase();
@@ -101,7 +103,7 @@ router.post('/approvals/:userId/approve', async (req, res, next) => {
 
 // GET /api/admin/health — in-memory service health metrics (resets on restart)
 router.get('/health', (_req, res) => {
-  res.json(getSnapshot());
+  res.json({ version: pkg.version, ...getSnapshot() });
 });
 
 module.exports = router;

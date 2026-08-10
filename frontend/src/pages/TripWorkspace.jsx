@@ -163,29 +163,6 @@ export default function TripWorkspace() {
     return off;
   }, []);
 
-  // Flush offline arrive queue when connection is restored
-  useEffect(() => {
-    const flush = async () => {
-      const QUEUE_KEY = 'tripify-offline-reach-queue';
-      const queue = (() => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } })();
-      if (!queue.length) return;
-      const remaining = [];
-      for (const entry of queue) {
-        // Only flush entries for the current trip
-        if (entry.tripId !== id) { remaining.push(entry); continue; }
-        try {
-          // handleMarkReached handles targetDate updates and subsequent date shifts
-          await handleMarkReached(entry.stopId, entry.reached);
-        } catch {
-          remaining.push(entry);
-        }
-      }
-      localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
-    };
-    window.addEventListener('online', flush);
-    return () => window.removeEventListener('online', flush);
-  }, [id, handleMarkReached]);
-
   // ── Android / browser back button handling ──────────────────────────────
   // Push a synthetic history entry whenever we open a modal or switch away
   // from the map tab, so the back button pops that entry first.
@@ -598,6 +575,30 @@ export default function TripWorkspace() {
       if (stop) setPhotoPromptStop(stop);
     }
   }, [tripData, stops, routeStops]);
+
+  // Flush offline arrive queue when connection is restored.
+  // Placed after handleMarkReached to avoid a Temporal Dead Zone reference error.
+  useEffect(() => {
+    const flush = async () => {
+      const QUEUE_KEY = 'tripify-offline-reach-queue';
+      const queue = (() => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } })();
+      if (!queue.length) return;
+      const remaining = [];
+      for (const entry of queue) {
+        // Only flush entries for the current trip
+        if (entry.tripId !== id) { remaining.push(entry); continue; }
+        try {
+          // handleMarkReached handles targetDate updates and subsequent date shifts
+          await handleMarkReached(entry.stopId, entry.reached);
+        } catch {
+          remaining.push(entry);
+        }
+      }
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+    };
+    window.addEventListener('online', flush);
+    return () => window.removeEventListener('online', flush);
+  }, [id, handleMarkReached]);
 
   // Move a saved-for-later stop into the main route, inserted after the nearest route stop
   const handleAddSavedToRoute = useCallback(async (stop) => {
