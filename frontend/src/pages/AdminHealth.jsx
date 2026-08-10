@@ -69,6 +69,7 @@ export default function AdminHealth() {
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '.5rem' }}>
         <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>
+          {data.version && <><strong>v{data.version}</strong>&ensp;·&ensp;</>}
           Uptime: <strong>{formatUptime(data.startedAt)}</strong>
           &ensp;·&ensp;Stats reset on restart
         </div>
@@ -125,6 +126,47 @@ export default function AdminHealth() {
                     {data.requests.total
                       ? `${((count / data.requests.total) * 100).toFixed(1)}%`
                       : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Per-path breakdown */}
+      <h3 className="admin-section-title">Requests by Path</h3>
+      {Object.keys(data.requests.byPath || {}).length === 0 ? (
+        <p style={{ color: 'var(--text-muted)', fontSize: '.9rem' }}>No requests recorded yet.</p>
+      ) : (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Method &amp; Path</th>
+                <th>Count</th>
+                <th>Share</th>
+                <th>Status Breakdown</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(data.requests.byPath).map(([path, info]) => (
+                <tr key={path}>
+                  <td style={{ fontFamily: 'monospace', fontSize: '.85rem' }}>{path}</td>
+                  <td>{info.count.toLocaleString()}</td>
+                  <td>
+                    {data.requests.total
+                      ? `${((info.count / data.requests.total) * 100).toFixed(1)}%`
+                      : '—'}
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {Object.entries(info.byStatus).sort(([a], [b]) => a.localeCompare(b)).map(([code, cnt]) => (
+                        <span key={code} className="admin-badge" style={statusColor(code)}>
+                          {code}: {cnt}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                 </tr>
               ))}
