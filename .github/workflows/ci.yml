@@ -70,7 +70,7 @@ jobs:
           npm --prefix backend version patch --no-git-tag-version
           git add backend/package.json
           git commit -m "chore: bump version [skip ci]"
-          git push
+          git push origin HEAD:${{ github.ref_name }}
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli

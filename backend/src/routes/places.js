@@ -10,6 +10,14 @@ const router = express.Router();
 const POI_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const poiCache = new Map(); // query → { data, expiresAt }
 
+// Sweep expired entries every 10 minutes to prevent unbounded growth.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of poiCache) {
+    if (now > entry.expiresAt) poiCache.delete(key);
+  }
+}, 10 * 60 * 1000);
+
 function poiCacheGet(query) {
   const entry = poiCache.get(query);
   if (!entry) return null;

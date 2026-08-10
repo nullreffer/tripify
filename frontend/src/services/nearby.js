@@ -33,10 +33,12 @@ async function osmNearbySearch(lat, lng, category, radiusMeters, overpassProvide
   const [key, val] = tag.split('=');
   // Build a bounding-box query centred on the point with a rough degree offset.
   const deg = radiusMeters / 111320;
-  const s = (lat - deg).toFixed(5);
-  const w = (lng - deg).toFixed(5);
-  const n = (lat + deg).toFixed(5);
-  const e = (lng + deg).toFixed(5);
+  const latDeg = deg;
+  const lngDeg = deg / Math.max(Math.cos(lat * Math.PI / 180), 0.01);
+  const s = (lat - latDeg).toFixed(5);
+  const w = (lng - lngDeg).toFixed(5);
+  const n = (lat + latDeg).toFixed(5);
+  const e = (lng + lngDeg).toFixed(5);
   const query = `[out:json][timeout:10];(node["${key}"="${val}"](${s},${w},${n},${e});way["${key}"="${val}"](${s},${w},${n},${e}););out center 15;`;
   try {
     const res = await fetch(`${API_BASE}/api/places/poi`, {
