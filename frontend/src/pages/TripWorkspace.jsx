@@ -149,6 +149,8 @@ export default function TripWorkspace() {
   const [attractionStatus, setAttractionStatus] = useState(null); // debug chip text
   const [selectedAttraction, setSelectedAttraction] = useState(null);
   const attractionDebounce = useRef(null);
+  const mapLayerRef = useRef(mapLayer);
+  mapLayerRef.current = mapLayer;
 
   // Photo prompt after reaching a stop
   const [photoPromptStop, setPhotoPromptStop] = useState(null);
@@ -788,6 +790,14 @@ export default function TripWorkspace() {
 
   const ATTRACTIONS_TOP_N = 20;
 
+  // Clear POI pins whenever the user switches away from a layer that shows them
+  useEffect(() => {
+    if (!['normal', 'satellite'].includes(mapLayer)) {
+      setAttractionPins([]);
+      setAttractionStatus(null);
+    }
+  }, [mapLayer]);
+
   // Score a POI element by importance (higher = more prominent)
   const attractionScore = (el) => {
     const t = el.tags || {};
@@ -809,6 +819,13 @@ export default function TripWorkspace() {
 
   const handleBoundsChange = useCallback((bounds, zoom) => {
     if (activeTab !== 'map') return;
+    // POI pins only make sense on normal and satellite views
+    const currentLayer = mapLayerRef.current;
+    if (!['normal', 'satellite'].includes(currentLayer)) {
+      setAttractionPins([]);
+      setAttractionStatus(null);
+      return;
+    }
     clearTimeout(attractionDebounce.current);
     attractionDebounce.current = setTimeout(async () => {
       const s = bounds.getSouth().toFixed(4);
@@ -831,13 +848,16 @@ export default function TripWorkspace() {
       setAttractionStatus('⭐ POI: fetching…');
       const query = `[out:json][timeout:15];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["natural"="geyser"]["name"](${s},${w},${n},${e});node["natural"="hot_spring"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center ${outLimit};`;
       try {
-        const res = await fetch('https://overpass-api.de/api/interpreter', {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: `data=${encodeURIComponent(query)}`,
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ query }),
+          signal: AbortSignal.timeout(25000),
         });
         if (!res.ok) {
-          console.warn(`[attractions] Overpass HTTP error ${res.status} (zoom=${zoom}, bounds=${s},${w},${n},${e})`);
+          const errData = await res.json().catch(() => ({}));
+          console.warn(`[attractions] POI proxy error ${res.status}:`, errData.error || '');
           setAttractionStatus(`⭐ POI: HTTP ${res.status}`);
           return;
         }
@@ -857,7 +877,7 @@ export default function TripWorkspace() {
         setAttractionStatus(`⭐ ${top.length} POI`);
         try { sessionStorage.setItem(cacheKey, JSON.stringify(top)); } catch { /* storage full */ }
       } catch (err) {
-        console.warn(`[attractions] Overpass fetch failed (zoom=${zoom}, bounds=${s},${w},${n},${e}):`, err.message);
+        console.warn(`[attractions] POI fetch failed (zoom=${zoom}, bounds=${s},${w},${n},${e}):`, err.message);
         setAttractionStatus('⭐ POI: failed');
       }
     }, 600);
@@ -1242,40 +1262,40 @@ export default function TripWorkspace() {
             <div className="ws-offline-status">Loading air quality data…</div>
           )}
           {mapLayer === 'aqi' && !aqiLoading && fireData.length > 0 && (
-            <div className="ws-fire-filter">
-              <span className="ws-fire-filter-label">🔥 Fire intensity:</span>
-              {[
-                { label: 'All', value: 0 },
-                { label: 'Moderate+', value: FIRE_FRP_MODERATE },
-                { label: 'High+', value: FIRE_FRP_HIGH },
-                { label: 'Extreme', value: FIRE_FRP_EXTREME },
-              ].map(opt => (
-                <button
-                  key={opt.value}
-                  className={`ws-fire-filter-btn${fireIntensityMin === opt.value ? ' active' : ''}`}
-                  onClick={() => setFireIntensityMin(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-          {mapLayer === 'aqi' && !aqiLoading && fireData.length > 0 && (
-            <div className="ws-fire-filter">
-              <span className="ws-fire-filter-label">📡 Source:</span>
-              {[
-                { label: 'All', value: 'all' },
-                { label: 'MODIS', value: 'modis' },
-                { label: 'VIIRS', value: 'viirs' },
-              ].map(opt => (
-                <button
-                  key={opt.value}
-                  className={`ws-fire-filter-btn${fireSourceFilter === opt.value ? ' active' : ''}`}
-                  onClick={() => setFireSourceFilter(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            <div className="ws-fire-filters">
+              <div className="ws-fire-filter-row">
+                <span className="ws-fire-filter-label">🔥 Intensity:</span>
+                {[
+                  { label: 'All', value: 0 },
+                  { label: 'Moderate+', value: FIRE_FRP_MODERATE },
+                  { label: 'High+', value: FIRE_FRP_HIGH },
+                  { label: 'Extreme', value: FIRE_FRP_EXTREME },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`ws-fire-filter-btn${fireIntensityMin === opt.value ? ' active' : ''}`}
+                    onClick={() => setFireIntensityMin(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="ws-fire-filter-row">
+                <span className="ws-fire-filter-label">📡 Source:</span>
+                {[
+                  { label: 'All', value: 'all' },
+                  { label: 'MODIS', value: 'modis' },
+                  { label: 'VIIRS', value: 'viirs' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`ws-fire-filter-btn${fireSourceFilter === opt.value ? ' active' : ''}`}
+                    onClick={() => setFireSourceFilter(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {offlineStatus && <div className="ws-offline-status">{offlineStatus}</div>}

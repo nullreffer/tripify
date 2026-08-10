@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# post-merge: auto-bump version in backend/package.json and frontend/package.json
+# after every merge based on the size of the merged diff.
+#
+# Thresholds (lines changed, additions + deletions):
+#   ≥ 500  → major bump  (x.0.0)
+#   ≥  50  → minor bump  (x.y.0)
+#   <  50  → patch bump  (x.y.z)
+#
+# The hook commits the version change on the current branch automatically.
+# Set SKIP_VERSION_BUMP=1 to disable for a specific merge.
+
+set -euo pipefail
+
+if [ "${SKIP_VERSION_BUMP:-0}" = "1" ]; then
+  echo "[post-merge] SKIP_VERSION_BUMP=1 — skipping version bump."
+  exit 0
+fi
+
+# Count lines changed in this merge (additions + deletions)
+MERGE_HEAD=$(git rev-parse MERGE_HEAD 2>/dev/null || git rev-parse HEAD^2 2>/dev/null || echo "")
+if [ -z "$MERGE_HEAD" ]; then
+  # Fallback: compare HEAD~1 (squash merges / fast-forward)
+  LINES_CHANGED=$(git diff --shortstat HEAD~1 HEAD 2>/dev/null | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | grep -oE '[0-9]+' | paste -sd+ - | bc 2>/dev/null || echo 0)
+else
+  LINES_CHANGED=$(git diff --shortstat "$(git merge-base HEAD "$MERGE_HEAD")" HEAD 2>/dev/null | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | grep -oE '[0-9]+' | paste -sd+ - | bc 2>/dev/null || echo 0)
+fi
+
+if [ "$LINES_CHANGED" -ge 500 ]; then
+  BUMP="major"
+elif [ "$LINES_CHANGED" -ge 50 ]; then
+  BUMP="minor"
+else
+  BUMP="patch"
+fi
+
+echo "[post-merge] ${LINES_CHANGED} lines changed → ${BUMP} bump"
+
+bump_version() {
+  local file="$1"
+  local bump="$2"
+  if [ ! -f "$file" ]; then return; fi
+
+  local current
+  current=$(node -p "require('./${file}').version" 2>/dev/null || echo "")
+  if [ -z "$current" ]; then
+    echo "[post-merge] Could not read version from ${file}, skipping."
+    return
+  fi
+
+  IFS='.' read -r major minor patch <<< "$current"
+  major=${major:-0}; minor=${minor:-0}; patch=${patch:-0}
+
+  case "$bump" in
+    major) major=$((major + 1)); minor=0; patch=0 ;;
+    minor) minor=$((minor + 1)); patch=0 ;;
+    patch) patch=$((patch + 1)) ;;
+  esac
+
+  local new_version="${major}.${minor}.${patch}"
+  # Use node to rewrite the version field so the rest of the JSON is preserved
+  node -e "
+    const fs = require('fs');
+    const pkg = JSON.parse(fs.readFileSync('${file}', 'utf8'));
+    pkg.version = '${new_version}';
+    fs.writeFileSync('${file}', JSON.stringify(pkg, null, 2) + '\n');
+  "
+  echo "[post-merge] ${file}: ${current} → ${new_version}"
+}
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+bump_version "backend/package.json" "$BUMP"
+bump_version "frontend/package.json" "$BUMP"
+
+# Stage and commit the version bump
+git add backend/package.json frontend/package.json 2>/dev/null || true
+if git diff --cached --quiet; then
+  echo "[post-merge] No version files changed."
+else
+  git commit -m "chore: bump ${BUMP} version after merge [skip ci]" --no-verify
+  echo "[post-merge] Version bump committed."
+fi

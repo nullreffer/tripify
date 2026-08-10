@@ -1857,12 +1857,17 @@ body {
   background: #ecfeff;
   border: 1px solid #67e8f9;
 }
-.ws-fire-filter {
+.ws-fire-filters {
   position: absolute;
   left: 12px;
   right: 12px;
   bottom: 130px;
   z-index: 550;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.ws-fire-filter-row {
   display: flex;
   align-items: center;
   gap: .4rem;
