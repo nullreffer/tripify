@@ -140,10 +140,13 @@ export default function TripWorkspace() {
   const [mapFireModal, setMapFireModal] = useState(null);
   const [fireData, setFireData] = useState([]);
   const [fireIntensityMin, setFireIntensityMin] = useState(0); // min FRP (MW) to show; 0 = all
+  const [fireSourceFilter, setFireSourceFilter] = useState('all'); // 'all' | 'modis' | 'viirs'
+  const [showTrailsPicker, setShowTrailsPicker] = useState(false);
   const mapSearchDebounce = useRef(null);
 
   // Attractions (POI) pins loaded from Overpass API on map pan/zoom
   const [attractionPins, setAttractionPins] = useState([]);
+  const [attractionStatus, setAttractionStatus] = useState(null); // debug chip text
   const [selectedAttraction, setSelectedAttraction] = useState(null);
   const attractionDebounce = useRef(null);
 
@@ -160,6 +163,29 @@ export default function TripWorkspace() {
     return off;
   }, []);
 
+  // Flush offline arrive queue when connection is restored
+  useEffect(() => {
+    const flush = async () => {
+      const QUEUE_KEY = 'tripify-offline-reach-queue';
+      const queue = (() => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } })();
+      if (!queue.length) return;
+      const remaining = [];
+      for (const entry of queue) {
+        try {
+          await tripData.markReached(entry.stopId, entry.reached);
+          if (entry.reached) {
+            await tripData.updateStop(entry.stopId, { targetDate: entry.queuedAt });
+          }
+        } catch {
+          remaining.push(entry);
+        }
+      }
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+    };
+    window.addEventListener('online', flush);
+    return () => window.removeEventListener('online', flush);
+  }, [tripData]);
+
   // ── Android / browser back button handling ──────────────────────────────
   // Push a synthetic history entry whenever we open a modal or switch away
   // from the map tab, so the back button pops that entry first.
@@ -172,8 +198,14 @@ export default function TripWorkspace() {
   useEffect(() => {
     if (activeTab !== 'map') {
       window.history.pushState({ tripifyTab: true }, '');
+    } else {
+      // Re-trigger POI fetch when returning to the map tab so pins appear
+      // even if the map bounds haven't changed since the last pan.
+      const bounds = mapRef.current?.getBounds?.();
+      const zoom = mapRef.current?.getZoom?.();
+      if (bounds && zoom != null) handleBoundsChange(bounds, zoom);
     }
-  }, [activeTab]);
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handlePopState = () => {
@@ -471,6 +503,10 @@ export default function TripWorkspace() {
   }, [tripData, savedStops]);
 
   const handleFindTrails = useCallback(() => {
+    setShowTrailsPicker(true);
+  }, []);
+
+  const openAllTrails = useCallback(() => {
     const center = mapRef.current?.getCenter();
     const zoom = mapRef.current?.getZoom();
     if (center) {
@@ -481,6 +517,23 @@ export default function TripWorkspace() {
     } else {
       window.open('https://www.alltrails.com/explore', '_blank', 'noopener');
     }
+    setShowTrailsPicker(false);
+  }, []);
+
+  const openGoogleMapsHiking = useCallback(() => {
+    const center = mapRef.current?.getCenter();
+    const zoom = mapRef.current?.getZoom();
+    const z = Number.isFinite(zoom) ? Math.round(zoom) : 12;
+    if (center) {
+      // Google Maps hiking layer deeplink — data=!5m1!1e4 enables the terrain/hiking overlay
+      window.open(
+        `https://www.google.com/maps/@${center.lat.toFixed(5)},${center.lng.toFixed(5)},${z}z/data=!5m1!1e4`,
+        '_blank', 'noopener'
+      );
+    } else {
+      window.open('https://www.google.com/maps', '_blank', 'noopener');
+    }
+    setShowTrailsPicker(false);
   }, []);
 
   const handleLongPress = useCallback(async (latlng) => {
@@ -510,6 +563,15 @@ export default function TripWorkspace() {
 
   // Mark reached from any tab — set targetDate to now and shift subsequent stop dates
   const handleMarkReached = useCallback(async (stopId, reached = true) => {
+    if (!navigator.onLine) {
+      // Queue the arrive action for later upload when back online
+      const QUEUE_KEY = 'tripify-offline-reach-queue';
+      const existing = (() => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } })();
+      const entry = { tripId: id, stopId, reached, queuedAt: new Date().toISOString() };
+      localStorage.setItem(QUEUE_KEY, JSON.stringify([...existing.filter(e => !(e.tripId === id && e.stopId === stopId)), entry]));
+      // Optimistically update UI only; real sync happens when online
+      return;
+    }
     await tripData.markReached(stopId, reached);
     if (reached) {
       const now = new Date();
@@ -647,16 +709,19 @@ export default function TripWorkspace() {
     const byIntensity = fireIntensityMin > 0
       ? fireData.filter(f => f.frp != null && f.frp >= fireIntensityMin)
       : fireData;
-    if (routeStops.length === 0) return byIntensity;
+    const bySource = fireSourceFilter === 'all'
+      ? byIntensity
+      : byIntensity.filter(f => f.source === fireSourceFilter);
+    if (routeStops.length === 0) return bySource;
     const lats = routeStops.map(s => s.lat);
     const lngs = routeStops.map(s => s.lng);
     const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
     const cLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
     const MAX_DEG = 1500 / 111; // ~1500 km in degrees (rough)
-    return byIntensity.filter(f =>
+    return bySource.filter(f =>
       Math.abs(f.lat - cLat) <= MAX_DEG && Math.abs(f.lng - cLng) <= MAX_DEG
     );
-  }, [mapLayer, fireData, fireIntensityMin, routeStops]);
+  }, [mapLayer, fireData, fireIntensityMin, fireSourceFilter, routeStops]);
 
   // Stops that have been downloaded for offline use
   const offlinePins = useMemo(() => {
@@ -751,6 +816,18 @@ export default function TripWorkspace() {
       const e = bounds.getEast().toFixed(4);
       // Request more results when zoomed out so we have enough candidates to rank
       const outLimit = zoom < 10 ? 100 : 50;
+      const cacheKey = `poi:${s},${w},${n},${e},${outLimit}`;
+      // Serve from session cache when available — avoids re-querying on every pan
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const top = JSON.parse(cached);
+          setAttractionPins(top);
+          setAttractionStatus(`⭐ ${top.length} POI (cached)`);
+          return;
+        } catch { /* fall through to live fetch */ }
+      }
+      setAttractionStatus('⭐ POI: fetching…');
       const query = `[out:json][timeout:15];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["natural"="geyser"]["name"](${s},${w},${n},${e});node["natural"="hot_spring"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center ${outLimit};`;
       try {
         const res = await fetch('https://overpass-api.de/api/interpreter', {
@@ -760,6 +837,7 @@ export default function TripWorkspace() {
         });
         if (!res.ok) {
           console.warn(`[attractions] Overpass HTTP error ${res.status} (zoom=${zoom}, bounds=${s},${w},${n},${e})`);
+          setAttractionStatus(`⭐ POI: HTTP ${res.status}`);
           return;
         }
         const data = await res.json();
@@ -775,8 +853,11 @@ export default function TripWorkspace() {
           tags: el.tags,
         })).filter(p => p.lat != null && p.lng != null);
         setAttractionPins(top);
+        setAttractionStatus(`⭐ ${top.length} POI`);
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(top)); } catch { /* storage full */ }
       } catch (err) {
         console.warn(`[attractions] Overpass fetch failed (zoom=${zoom}, bounds=${s},${w},${n},${e}):`, err.message);
+        setAttractionStatus('⭐ POI: failed');
       }
     }, 600);
   }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -867,11 +948,17 @@ export default function TripWorkspace() {
       const totalUrls = urls.size;
       if ('caches' in window) {
         const cache = await caches.open(OFFLINE_CACHE_NAME);
-        await Promise.all([...urls].map(url =>
-          fetch(url, { mode: 'no-cors' })
-            .then(res => { cache.put(url, res); downloaded++; })
-            .catch(() => { downloaded++; })
-        ));
+        const urlArr = [...urls];
+        const CHUNK_SIZE = 10;
+        for (let i = 0; i < urlArr.length; i += CHUNK_SIZE) {
+          const chunk = urlArr.slice(i, i + CHUNK_SIZE);
+          await Promise.all(chunk.map(url =>
+            fetch(url, { mode: 'no-cors' })
+              .then(res => { cache.put(url, res); downloaded++; })
+              .catch(() => { downloaded++; })
+          ));
+          setOfflineStatus(`Downloading tiles… ${downloaded}/${totalUrls}`);
+        }
       }
 
       const snapshot = {
@@ -992,6 +1079,7 @@ export default function TripWorkspace() {
             onFirePinClick={pin => setMapFireModal(pin)}
             attractionPins={attractionPins}
             onAttractionPinClick={pin => setSelectedAttraction(pin)}
+            attractionStatus={attractionStatus}
             onBoundsChange={handleBoundsChange}
             mapTileProvider={settings.mapTileProvider ?? 'stadia'}
           />
@@ -1165,6 +1253,24 @@ export default function TripWorkspace() {
                   key={opt.value}
                   className={`ws-fire-filter-btn${fireIntensityMin === opt.value ? ' active' : ''}`}
                   onClick={() => setFireIntensityMin(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {mapLayer === 'aqi' && !aqiLoading && fireData.length > 0 && (
+            <div className="ws-fire-filter">
+              <span className="ws-fire-filter-label">📡 Source:</span>
+              {[
+                { label: 'All', value: 'all' },
+                { label: 'MODIS', value: 'modis' },
+                { label: 'VIIRS', value: 'viirs' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  className={`ws-fire-filter-btn${fireSourceFilter === opt.value ? ' active' : ''}`}
+                  onClick={() => setFireSourceFilter(opt.value)}
                 >
                   {opt.label}
                 </button>
@@ -1649,6 +1755,26 @@ export default function TripWorkspace() {
                   + Add as stop
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Trails app picker ── */}
+      {showTrailsPicker && (
+        <div className="sheet-overlay" onClick={() => setShowTrailsPicker(false)}>
+          <div className="sheet" onClick={e => e.stopPropagation()} style={{ maxWidth: 340 }}>
+            <div className="sheet-header">
+              <span className="sheet-title">🥾 Open in…</span>
+              <button className="sheet-close" onClick={() => setShowTrailsPicker(false)}>✕</button>
+            </div>
+            <div className="sheet-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button className="btn-primary" onClick={openAllTrails}>
+                🌲 AllTrails — view trails at this location
+              </button>
+              <button className="btn-primary" onClick={openGoogleMapsHiking}>
+                🗺️ Google Maps — hiking layer at this location
+              </button>
             </div>
           </div>
         </div>
