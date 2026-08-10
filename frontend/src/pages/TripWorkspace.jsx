@@ -171,11 +171,11 @@ export default function TripWorkspace() {
       if (!queue.length) return;
       const remaining = [];
       for (const entry of queue) {
+        // Only flush entries for the current trip
+        if (entry.tripId !== id) { remaining.push(entry); continue; }
         try {
-          await tripData.markReached(entry.stopId, entry.reached);
-          if (entry.reached) {
-            await tripData.updateStop(entry.stopId, { targetDate: entry.queuedAt });
-          }
+          // handleMarkReached handles targetDate updates and subsequent date shifts
+          await handleMarkReached(entry.stopId, entry.reached);
         } catch {
           remaining.push(entry);
         }
@@ -184,7 +184,7 @@ export default function TripWorkspace() {
     };
     window.addEventListener('online', flush);
     return () => window.removeEventListener('online', flush);
-  }, [tripData]);
+  }, [id, handleMarkReached]);
 
   // ── Android / browser back button handling ──────────────────────────────
   // Push a synthetic history entry whenever we open a modal or switch away
