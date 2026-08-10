@@ -158,7 +158,15 @@ export default function TripWorkspace() {
 
   // Gas station pins loaded from Overpass API when gas layer is active
   const [gasPins, setGasPins] = useState([]);
+  const [gasStatus, setGasStatus] = useState(null);
+  const [selectedGasPin, setSelectedGasPin] = useState(null);
   const gasDebounce = useRef(null);
+
+  // AQI layer status chip
+  const [aqiStatus, setAqiStatus] = useState(null);
+
+  // Navigation popup (my location + fit trip combined)
+  const [showNavPopup, setShowNavPopup] = useState(false);
 
   // Photo prompt after reaching a stop
   const [photoPromptStop, setPhotoPromptStop] = useState(null);
@@ -333,7 +341,7 @@ export default function TripWorkspace() {
   // Samples a 5×5 grid over the trip bounding box so the whole map is
   // covered by AQI colour circles, not just the individual stop locations.
   useEffect(() => {
-    if (mapLayer !== 'aqi') return;
+    if (mapLayer !== 'aqi') { setAqiStatus(null); return; }
     let cancelled = false;
 
     // Check whether the server has a WAQI token configured for tile overlays
@@ -342,11 +350,12 @@ export default function TripWorkspace() {
     });
 
     // Fetch active fire data in parallel with AQI grid
+    setAqiStatus('🌫 AQI: fetching…');
     getActiveFires().then(fires => {
       if (!cancelled) setFireData(Array.isArray(fires) ? fires : []);
     });
 
-    if (routeStops.length === 0) { setAqiGridData({}); return; }
+    if (routeStops.length === 0) { setAqiGridData({}); setAqiStatus('🌫 AQI: no stops'); return; }
 
     const { points, radiusMeters } = generateAqiGrid(routeStops);
     if (!cancelled) setAqiGridRadiusMeters(radiusMeters);
@@ -361,7 +370,9 @@ export default function TripWorkspace() {
         } catch { return null; }
       }));
       if (cancelled) return;
-      setAqiGridData(Object.fromEntries(entries.filter(Boolean)));
+      const validEntries = entries.filter(Boolean);
+      setAqiGridData(Object.fromEntries(validEntries));
+      setAqiStatus(validEntries.length > 0 ? `🌫 AQI: ${validEntries.length} point${validEntries.length !== 1 ? 's' : ''}` : '🌫 AQI: no data');
       setAqiLoading(false);
     })();
     return () => { cancelled = true; };
@@ -520,10 +531,6 @@ export default function TripWorkspace() {
   const handleReorderRouteStops = useCallback(async (newRouteStops) => {
     await tripData.reorderStops([...newRouteStops, ...savedStops]);
   }, [tripData, savedStops]);
-
-  const handleFindTrails = useCallback(() => {
-    setShowTrailsPicker(true);
-  }, []);
 
   const openAllTrails = useCallback(() => {
     const center = mapRef.current?.getCenter();
@@ -901,18 +908,31 @@ export default function TripWorkspace() {
         const cacheKey = `gas:${s},${w},${n},${e}`;
         const cached = sessionStorage.getItem(cacheKey);
         if (cached) {
-          try { setGasPins(JSON.parse(cached)); return; } catch { /* fall through */ }
+          try {
+            const pins = JSON.parse(cached);
+            setGasPins(pins);
+            setGasStatus(`⛽ ${pins.length} station${pins.length !== 1 ? 's' : ''} (cached)`);
+            return;
+          } catch { /* fall through */ }
         }
+        setGasStatus('⛽ Gas: fetching…');
         const query = `[out:json][timeout:15];node["amenity"="fuel"](${s},${w},${n},${e});out 200;`;
         try {
+          const poiProvider = getSettings().poiProvider ?? 'overpass';
           const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ query }),
+            body: JSON.stringify({ query, provider: poiProvider }),
             signal: AbortSignal.timeout(20000),
           });
-          if (!res.ok) { setGasPins([]); return; }
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            console.warn('[gas] POI proxy error:', res.status, errData.error || '');
+            setGasStatus(`⛽ Gas: HTTP ${res.status}`);
+            setGasPins([]);
+            return;
+          }
           const data = await res.json();
           const pins = (data.elements || []).map(el => ({
             id: `gas-${el.type}-${el.id}`,
@@ -922,10 +942,12 @@ export default function TripWorkspace() {
             tags: el.tags,
           })).filter(p => p.lat != null && p.lng != null);
           setGasPins(pins);
+          setGasStatus(`⛽ ${pins.length} station${pins.length !== 1 ? 's' : ''}`);
           try { sessionStorage.setItem(cacheKey, JSON.stringify(pins)); } catch { /* storage full */ }
         } catch (err) {
           console.warn('[gas] fetch failed:', err.message);
           setGasPins([]);
+          setGasStatus('⛽ Gas: failed');
         }
       }, 600);
       return;
@@ -933,6 +955,7 @@ export default function TripWorkspace() {
 
     // Clear gas pins when not on gas layer
     setGasPins([]);
+    setGasStatus(null);
 
     // ── Attraction layer: POI pins on normal/satellite only ─────────────────
     if (!['normal', 'satellite'].includes(currentLayer)) {
@@ -962,11 +985,12 @@ export default function TripWorkspace() {
       setAttractionStatus('⭐ POI: fetching…');
       const query = `[out:json][timeout:15];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["natural"="geyser"]["name"](${s},${w},${n},${e});node["natural"="hot_spring"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center ${outLimit};`;
       try {
+        const poiProvider = getSettings().poiProvider ?? 'overpass';
         const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ query }),
+          body: JSON.stringify({ query, provider: poiProvider }),
           signal: AbortSignal.timeout(25000),
         });
         if (!res.ok) {
@@ -1216,6 +1240,9 @@ export default function TripWorkspace() {
             onAttractionPinClick={pin => setSelectedAttraction(pin)}
             attractionStatus={attractionStatus}
             gasPins={gasPins}
+            onGasPinClick={pin => setSelectedGasPin(pin)}
+            gasStatus={gasStatus}
+            aqiStatus={aqiStatus}
             onBoundsChange={handleBoundsChange}
             mapTileProvider={settings.mapTileProvider ?? 'stadia'}
           />
@@ -1226,17 +1253,18 @@ export default function TripWorkspace() {
             <button className="map-ctrl-btn" title="Add a stop" onClick={() => setShowSearch(true)}>
               <span className="map-ctrl-icon">+</span>
             </button>
-            <button className="map-ctrl-btn" title="My location" onClick={handleMyLocation}>
+            <button
+              className={`map-ctrl-btn${showNavPopup ? ' map-ctrl-active' : ''}`}
+              title="Navigate"
+              onClick={() => { setShowNavPopup(prev => !prev); setShowMapFilters(false); setShowMapLayers(false); setShowTrailsPicker(false); }}
+            >
               <span className="map-ctrl-icon">◎</span>
-            </button>
-            <button className="map-ctrl-btn" title="Fit trip" onClick={handleFitTrip}>
-              <span className="map-ctrl-icon">⊡</span>
             </button>
             {availableStopTypes.length > 1 && (
               <button
                 className={`map-ctrl-btn${showMapFilters ? ' map-ctrl-active' : ''}`}
                 title="Filters"
-                onClick={() => setShowMapFilters(prev => !prev)}
+                onClick={() => { setShowMapFilters(prev => !prev); setShowNavPopup(false); setShowMapLayers(false); setShowTrailsPicker(false); }}
               >
                 <span className="map-ctrl-icon">⚙️</span>
               </button>
@@ -1244,7 +1272,7 @@ export default function TripWorkspace() {
             <button
               className={`map-ctrl-btn${showMapLayers ? ' map-ctrl-active' : ''}`}
               title="Map layers"
-              onClick={() => setShowMapLayers(prev => !prev)}
+              onClick={() => { setShowMapLayers(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowTrailsPicker(false); }}
             >
               <span className="map-ctrl-icon">🛰️</span>
             </button>
@@ -1255,7 +1283,11 @@ export default function TripWorkspace() {
             >
               <span className="map-ctrl-icon">{mapSearchMode ? '✕' : '🔍'}</span>
             </button>
-            <button className="map-ctrl-btn map-ctrl-trails" title="Find trails on AllTrails" onClick={handleFindTrails}>
+            <button
+              className={`map-ctrl-btn map-ctrl-trails${showTrailsPicker ? ' map-ctrl-active' : ''}`}
+              title="Find trails"
+              onClick={() => { setShowTrailsPicker(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowMapLayers(false); }}
+            >
               <span className="map-ctrl-icon">🥾</span>
             </button>
             {routeStops.length > 0 && (
@@ -1264,6 +1296,26 @@ export default function TripWorkspace() {
               </button>
             )}
           </div>
+          {showNavPopup && (
+            <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
+              <button className="map-filter-menu-btn" onClick={() => { handleMyLocation(); setShowNavPopup(false); }}>
+                ◎ My location
+              </button>
+              <button className="map-filter-menu-btn" onClick={() => { handleFitTrip(); setShowNavPopup(false); }}>
+                ⊡ Fit trip route
+              </button>
+            </div>
+          )}
+          {showTrailsPicker && (
+            <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
+              <button className="map-filter-menu-btn" onClick={openAllTrails}>
+                🌲 AllTrails
+              </button>
+              <button className="map-filter-menu-btn" onClick={openGoogleMapsHiking}>
+                🗺️ Google Maps hiking
+              </button>
+            </div>
+          )}
           {showMapLayers && (
             <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
               {MAP_LAYER_OPTIONS.map(([key, label]) => (
@@ -1912,21 +1964,44 @@ export default function TripWorkspace() {
         </div>
       )}
 
-      {/* ── Trails app picker ── */}
-      {showTrailsPicker && (
-        <div className="sheet-overlay" onClick={() => setShowTrailsPicker(false)}>
-          <div className="sheet" onClick={e => e.stopPropagation()} style={{ maxWidth: 340 }}>
+      {/* ── Gas station info sheet ── */}
+      {selectedGasPin && (
+        <div className="sheet-overlay" onClick={() => setSelectedGasPin(null)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
             <div className="sheet-header">
-              <span className="sheet-title">🥾 Open in…</span>
-              <button className="sheet-close" onClick={() => setShowTrailsPicker(false)}>✕</button>
+              <span className="sheet-title">⛽ {selectedGasPin.name || 'Gas Station'}</span>
+              <button className="sheet-close" onClick={() => setSelectedGasPin(null)}>✕</button>
             </div>
-            <div className="sheet-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button className="btn-primary" onClick={openAllTrails}>
-                🌲 AllTrails — view trails at this location
-              </button>
-              <button className="btn-primary" onClick={openGoogleMapsHiking}>
-                🗺️ Google Maps — hiking layer at this location
-              </button>
+            <div className="sheet-body">
+              {selectedGasPin.tags?.brand && (
+                <div className="sheet-detail-row">🏷 {selectedGasPin.tags.brand}</div>
+              )}
+              {selectedGasPin.tags?.['opening_hours'] && (
+                <div className="sheet-detail-row">⏰ {selectedGasPin.tags['opening_hours']}</div>
+              )}
+              {selectedGasPin.tags?.phone && (
+                <div className="sheet-detail-row">📞 <a href={`tel:${selectedGasPin.tags.phone}`}>{selectedGasPin.tags.phone}</a></div>
+              )}
+              <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+                📍 {selectedGasPin.lat.toFixed(5)}, {selectedGasPin.lng.toFixed(5)}
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button
+                  className="btn-primary btn-sm"
+                  onClick={() => {
+                    setSelectedGasPin(null);
+                    setShowSearch({
+                      prefill: {
+                        lat: selectedGasPin.lat,
+                        lng: selectedGasPin.lng,
+                        name: selectedGasPin.name || 'Gas Station',
+                      },
+                    });
+                  }}
+                >
+                  + Add as stop
+                </button>
+              </div>
             </div>
           </div>
         </div>

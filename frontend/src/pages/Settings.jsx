@@ -108,6 +108,17 @@ export default function Settings() {
             </div>
             <div className="settings-row">
               <div className="settings-row-label">
+                <span>POI data provider</span>
+                <span className="settings-row-hint">Overpass API (primary) or community mirror — switch if POI/gas pins fail to load</span>
+              </div>
+              <ToggleGroup
+                value={settings.poiProvider ?? 'overpass'}
+                options={[{ value: 'overpass', label: 'Overpass' }, { value: 'mirror', label: 'Mirror' }]}
+                onChange={v => update('poiProvider', v)}
+              />
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
                 <span>Zoom when tapping a pin</span>
                 <span className="settings-row-hint">
                   How far to zoom in when you tap a stop on the map (10 = far, 18 = street level). Currently: {settings.pinTapZoom ?? 15}
