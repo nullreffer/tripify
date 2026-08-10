@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { formatDistance, formatDuration } from '../../services/routing.js';
 
 const REF_TYPES = ['GOOGLE_SHEET', 'BOOKING', 'DOCUMENT', 'LINK', 'OTHER'];
@@ -110,7 +111,7 @@ function ReadinessDashboard({ stops, days, reservations, categories, route, onNa
   );
 }
 
-export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate, onDownloadOffline, offlineDownloading, offlineStatus, tripId, offlineRadiusMi }) {
+export default function MoreView({ trip, stops, route, references, days, reservations, categories, onAddReference, onDeleteReference, onUpdateTrip, onDeleteTrip, onNavigate, onDownloadOffline, offlineDownloading, offlineStatus, tripId, offlineRadiusMi, units, weatherAlerts = [], fuelEfficiencyMpg = 25, fuelPricePerGallon = null, onPhotoByLocation, completedDist = 0, remainingDist = 0 }) {
   const [editingTrip, setEditingTrip] = useState(false);
   const [title, setTitle] = useState(trip?.title || '');
   const [description, setDescription] = useState(trip?.description || '');
@@ -132,10 +133,30 @@ export default function MoreView({ trip, stops, route, references, days, reserva
   const [refName, setRefName] = useState('');
   const [refUrl, setRefUrl] = useState('');
   const [refType, setRefType] = useState('LINK');
+  const navigate = useNavigate();
 
   const reached = stops.filter(s => s.reached).length;
-  const totalDist = route?.distance ? formatDistance(route.distance) : null;
+  const totalDist = route?.distance ? formatDistance(route.distance, units) : null;
   const totalDur = route?.duration ? formatDuration(route.duration) : null;
+  const remainingDistLabel = remainingDist > 0 ? formatDistance(remainingDist, units) : null;
+  const completionPct = stops.length > 0 ? Math.round((reached / stops.length) * 100) : null;
+
+  // Fuel cost estimate
+  // Route distance is in meters; convert to miles for MPG calculation
+  const totalMiles = route?.distance ? route.distance / 1609.34 : null;
+  const fuelCostLabel = (() => {
+    if (!totalMiles || !fuelEfficiencyMpg || fuelEfficiencyMpg <= 0) return null;
+    if (units === 'metric') {
+      // fuelEfficiencyMpg field stores L/100km in metric mode
+      const totalKm = (route?.distance || 0) / 1000;
+      const liters = (totalKm / 100) * fuelEfficiencyMpg;
+      if (!fuelPricePerGallon) return `~${liters.toFixed(1)} L`;
+      return `~$${(liters * fuelPricePerGallon).toFixed(2)} (${liters.toFixed(1)} L)`;
+    }
+    const gallons = totalMiles / fuelEfficiencyMpg;
+    if (!fuelPricePerGallon) return `~${gallons.toFixed(1)} gal`;
+    return `~$${(gallons * fuelPricePerGallon).toFixed(2)} (${gallons.toFixed(1)} gal)`;
+  })();
   const isOwner = trip?.memberRole === 'OWNER';
 
   // Read cached offline snapshot from localStorage
@@ -291,6 +312,35 @@ export default function MoreView({ trip, stops, route, references, days, reserva
         </div>
       </div>
 
+      {/* Weather & AQI Alerts */}
+      {weatherAlerts.length > 0 && (
+        <div className="more-section more-alerts-section">
+          <h3>⚠️ Trip Alerts</h3>
+          <div className="more-alerts-list">
+            {weatherAlerts.map((alert, i) => (
+              <div key={i} className="more-alert-row">
+                <span className="more-alert-emoji">{alert.emoji}</span>
+                <div className="more-alert-body">
+                  {alert.type === 'weather' ? (
+                    <>
+                      <span className="more-alert-label">{alert.label}</span>
+                      {alert.stopName && (
+                        <span className="more-alert-sub">at {alert.stopName}</span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="more-alert-label">Air Quality</span>
+                      <span className="more-alert-sub">AQI {alert.aqi} — {alert.label}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="more-section">
         <h3>Trip Stats</h3>
@@ -303,6 +353,12 @@ export default function MoreView({ trip, stops, route, references, days, reserva
             <span className="stat-num">{reached}</span>
             <span className="stat-label">arrived</span>
           </div>
+          {completionPct !== null && stops.length > 0 && (
+            <div className="more-stat">
+              <span className="stat-num">{completionPct}%</span>
+              <span className="stat-label">complete</span>
+            </div>
+          )}
           {totalDist && (
             <div className="more-stat">
               <span className="stat-num">{totalDist}</span>
@@ -315,7 +371,36 @@ export default function MoreView({ trip, stops, route, references, days, reserva
               <span className="stat-label">drive time</span>
             </div>
           )}
+          {remainingDistLabel && reached > 0 && (
+            <div className="more-stat">
+              <span className="stat-num">{remainingDistLabel}</span>
+              <span className="stat-label">remaining</span>
+            </div>
+          )}
         </div>
+        {/* Trip progress bar */}
+        {completionPct !== null && stops.length > 0 && (
+          <div className="more-progress-bar-wrap">
+            <div className="more-progress-bar" style={{ width: `${completionPct}%` }} />
+          </div>
+        )}
+        {/* Fuel cost */}
+        {fuelCostLabel && (
+          <div className="more-fuel-row">
+            <span className="more-fuel-icon">⛽</span>
+            <div>
+              <span className="more-fuel-label">Est. fuel cost</span>
+              <span className="more-fuel-value">{fuelCostLabel}</span>
+            </div>
+            <button className="btn-ghost btn-sm more-fuel-settings-btn" onClick={() => navigate('/settings')} title="Edit fuel settings">⚙️</button>
+          </div>
+        )}
+        {!fuelCostLabel && route?.distance > 0 && (
+          <div className="more-fuel-row more-fuel-hint">
+            <span>⛽</span>
+            <span>Add your <a href="/settings" className="more-fuel-link">fuel efficiency in Settings</a> to see estimated fuel cost.</span>
+          </div>
+        )}
       </div>
 
       {/* Gallery */}
@@ -324,9 +409,16 @@ export default function MoreView({ trip, stops, route, references, days, reserva
           <h3>Gallery</h3>
         </div>
         <p className="more-empty">View all stop photos on a dedicated page.</p>
-        <button className="btn-primary btn-sm" onClick={() => onNavigate?.('gallery')}>
-          🖼 Open Gallery
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button className="btn-primary btn-sm" onClick={() => onNavigate?.('gallery')}>
+            🖼 Open Gallery
+          </button>
+          {onPhotoByLocation && (
+            <button className="btn-secondary btn-sm" onClick={onPhotoByLocation} title="Auto-detect nearest stop and add a photo">
+              📸 Add Photo Here
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Offline Maps */}

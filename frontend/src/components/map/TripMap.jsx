@@ -107,6 +107,36 @@ function makeFireIcon() {
 // Overridden at runtime by an adaptive value computed from the trip bounding box.
 const AQI_OVERLAY_RADIUS_METERS_DEFAULT = 50000;
 
+function makeGasIcon(name) {
+  const rawLabel = name ? name.slice(0, 18) : '';
+  const label = rawLabel
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const html = `<div style="
+    position:relative;
+    display:flex;flex-direction:column;align-items:center;
+    pointer-events:auto;
+  ">
+    <div style="
+      width:30px;height:30px;border-radius:50%;
+      background:#f59e0b;border:2.5px solid #fff;
+      box-shadow:0 2px 8px rgba(0,0,0,.35);
+      display:flex;align-items:center;justify-content:center;
+      font-size:15px;
+    ">⛽</div>
+    ${label ? `<div style="
+      margin-top:2px;background:rgba(15,23,42,0.85);color:#fff;
+      font-size:9px;font-weight:600;border-radius:4px;padding:1px 4px;
+      white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;
+      border:1px solid rgba(255,255,255,0.2);
+    ">${label}</div>` : ''}
+  </div>`;
+  return L.divIcon({ html, className: '', iconSize: [30, 46], iconAnchor: [15, 30], popupAnchor: [0, -32] });
+}
+
 function makeAttractionIcon(name) {
   const rawLabel = name ? name.slice(0, 20) : '';
   // Escape HTML to prevent XSS from OSM tag values
@@ -410,6 +440,7 @@ const TripMap = forwardRef(function TripMap(
     firePins = [], onFirePinClick,
     attractionPins = [], onAttractionPinClick, onBoundsChange,
     attractionStatus = null,
+    gasPins = [], onGasPinClick,
     mapTileProvider = 'stadia' },
   mapRef
 ) {
@@ -431,6 +462,7 @@ const TripMap = forwardRef(function TripMap(
   }, [stops, nextStop?.id]);
 
   const isAqiLayer = mapLayer === 'aqi';
+  const isGasLayer = mapLayer === 'gas';
   // When AQI tiles are configured, use the proxy URL; otherwise fall back to AQI pins only
   const aqiTileUrl = aqiTilesAvailable
     ? `${API_BASE}/api/aqi/tile/{z}/{x}/{y}`
@@ -469,8 +501,8 @@ const TripMap = forwardRef(function TripMap(
       attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
     },
   };
-  // AQI uses the normal base map + an overlay tile layer
-  const layer = isAqiLayer
+  // AQI and gas layers use the normal base map + an overlay/pins on top
+  const layer = (isAqiLayer || isGasLayer)
     ? (tileLayerByMode.normal)
     : (tileLayerByMode[mapLayer] || tileLayerByMode.normal);
 
@@ -592,6 +624,16 @@ const TripMap = forwardRef(function TripMap(
             eventHandlers={onAttractionPinClick ? { click: () => onAttractionPinClick(pin) } : {}}
           />
         ))}
+
+        {/* Gas station pins (shown on gas layer) */}
+        {isGasLayer && gasPins.map(pin => (
+          <Marker
+            key={`gas-${pin.id}`}
+            position={[pin.lat, pin.lng]}
+            icon={makeGasIcon(pin.name)}
+            eventHandlers={onGasPinClick ? { click: () => onGasPinClick(pin) } : {}}
+          />
+        ))}
       </MapContainer>
 
       {/* AQI legend */}
@@ -620,6 +662,21 @@ const TripMap = forwardRef(function TripMap(
               <span>Active fire ({firePins.length} detection{firePins.length !== 1 ? 's' : ''}, last 24 h)</span>
             </div>
           )}
+        </div>
+      )}
+      {/* Gas station legend */}
+      {isGasLayer && (
+        <div style={{
+          position: 'absolute', bottom: '140px', left: '10px', zIndex: 1000,
+          background: 'rgba(15,23,42,0.9)', borderRadius: '10px', padding: '8px 12px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.4)', fontSize: '11px', color: '#fff',
+          pointerEvents: 'none',
+        }}>
+          <div style={{ fontWeight: 700 }}>⛽ Nearby Gas Stations</div>
+          {gasPins.length > 0
+            ? <div style={{ marginTop: '4px', opacity: 0.8 }}>{gasPins.length} station{gasPins.length !== 1 ? 's' : ''} visible</div>
+            : <div style={{ marginTop: '4px', opacity: 0.7 }}>Pan/zoom to load stations</div>
+          }
         </div>
       )}
       {/* POI debug chip — always visible so on-device debugging is possible */}

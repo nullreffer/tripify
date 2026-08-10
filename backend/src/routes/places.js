@@ -285,6 +285,15 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
   if (!query || typeof query !== 'string') {
     return res.status(400).json({ error: 'query is required' });
   }
+  // Guard against excessively large or globally-scoped queries
+  const MAX_QUERY_LEN = 2000;
+  if (query.length > MAX_QUERY_LEN) {
+    return res.status(400).json({ error: `query exceeds maximum length of ${MAX_QUERY_LEN} characters` });
+  }
+  // Require a bounding box to prevent global data dumps
+  if (!query.includes('(') || !/\(-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+\)/.test(query)) {
+    return res.status(400).json({ error: 'query must include a bounding box' });
+  }
   const t0 = Date.now();
   try {
     const upstream = await fetch('https://overpass-api.de/api/interpreter', {

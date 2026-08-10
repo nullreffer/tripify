@@ -42,6 +42,9 @@ const MI_TO_KM = 1.60934;
 const MI_TO_METERS = 1609.34;
 // Earth's equatorial circumference in km (used for tile-size estimation)
 const EARTH_CIRCUMFERENCE_KM = 40075.016;
+// Severe weather codes that warrant an alert (WMO Weather Interpretation Codes)
+const SEVERE_WEATHER_CODES = new Set([65, 66, 67, 75, 82, 85, 86, 95, 96, 99]);
+const SEVERE_WEATHER_LABELS = { 65: { label: 'Heavy rain', emoji: '🌧️' }, 66: { label: 'Freezing rain', emoji: '🌨️' }, 67: { label: 'Freezing rain', emoji: '🌨️' }, 75: { label: 'Heavy snow', emoji: '❄️' }, 82: { label: 'Heavy showers', emoji: '⛈️' }, 85: { label: 'Snow showers', emoji: '🌨️' }, 86: { label: 'Heavy snow showers', emoji: '❄️' }, 95: { label: 'Thunderstorm', emoji: '⛈️' }, 96: { label: 'Thunderstorm + hail', emoji: '⛈️' }, 99: { label: 'Thunderstorm + hail', emoji: '⛈️' } };
 const MAP_LAYER_OPTIONS = [
   ['normal', '🗺️ Normal'],
   ['satellite', '🛰️ Satellite'],
@@ -49,6 +52,7 @@ const MAP_LAYER_OPTIONS = [
   ['weather-current', '🌤️ Current weather'],
   ['weather-scheduled', '🗓️ Scheduled-day weather'],
   ['aqi', '🌫️ Air Quality'],
+  ['gas', '⛽ Nearby Gas'],
   ['offline', '📵 Offline areas'],
 ];
 
@@ -151,6 +155,10 @@ export default function TripWorkspace() {
   const attractionDebounce = useRef(null);
   const mapLayerRef = useRef(mapLayer);
   mapLayerRef.current = mapLayer;
+
+  // Gas station pins loaded from Overpass API when gas layer is active
+  const [gasPins, setGasPins] = useState([]);
+  const gasDebounce = useRef(null);
 
   // Photo prompt after reaching a stop
   const [photoPromptStop, setPhotoPromptStop] = useState(null);
@@ -375,6 +383,38 @@ export default function TripWorkspace() {
   const handleFitTrip = useCallback(() => {
     mapRef.current?.fitTrip();
   }, []);
+
+  // Auto-detect nearest route stop to user's current location and open the photo prompt
+  const handlePhotoByLocation = useCallback(() => {
+    if (routeStops.length === 0) return;
+    const tryNearest = (lat, lng) => {
+      const nearest = routeStops.reduce((best, s) => {
+        const d = Math.hypot(s.lat - lat, s.lng - lng);
+        return d < best.d ? { s, d } : best;
+      }, { s: routeStops[0], d: Infinity }).s;
+      setPhotoPromptStop(nearest);
+    };
+    if (userLocation) {
+      tryNearest(userLocation[0], userLocation[1]);
+    } else if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const loc = [pos.coords.latitude, pos.coords.longitude];
+          setUserLocation(loc);
+          tryNearest(loc[0], loc[1]);
+        },
+        () => {
+          // If geolocation denied, default to nearest unreached stop
+          const next = routeStops.find(s => !s.reached) || routeStops[0];
+          setPhotoPromptStop(next);
+        },
+        { timeout: 6000, maximumAge: 60000 }
+      );
+    } else {
+      const next = routeStops.find(s => !s.reached) || routeStops[0];
+      setPhotoPromptStop(next);
+    }
+  }, [routeStops, userLocation]);
 
   const handleOpenStop = useCallback((stop, { searchNearby = false } = {}) => {
     setActiveTab('map');
@@ -726,6 +766,33 @@ export default function TripWorkspace() {
     );
   }, [mapLayer, fireData, fireIntensityMin, fireSourceFilter, routeStops]);
 
+  // ── Weather + AQI alerts ─────────────────────────────────────────────────────
+  const weatherAlerts = useMemo(() => {
+    const alerts = [];
+    routeStops.forEach(stop => {
+      const weather = weatherByStopId[stop.id];
+      if (!weather) return;
+      const code = weather?.current?.weather_code;
+      if (code != null && SEVERE_WEATHER_CODES.has(code)) {
+        const meta = SEVERE_WEATHER_LABELS[code] || { label: 'Severe weather', emoji: '⚠️' };
+        alerts.push({ stopId: stop.id, stopName: stop.name, ...meta, type: 'weather' });
+      }
+    });
+    // AQI alerts — flag any grid point with AQI > 100 (Unhealthy for Sensitive Groups)
+    Object.values(aqiGridData).forEach(entry => {
+      if (Number.isFinite(entry.aqi) && entry.aqi > 100) {
+        const level = aqiMeta(entry.aqi);
+        if (!alerts.some(a => a.type === 'aqi')) {
+          alerts.push({ type: 'aqi', label: level.label, emoji: '🌫️', aqi: entry.aqi });
+        } else {
+          const existing = alerts.find(a => a.type === 'aqi');
+          if (entry.aqi > existing.aqi) { existing.aqi = entry.aqi; existing.label = level.label; }
+        }
+      }
+    });
+    return alerts;
+  }, [routeStops, weatherByStopId, aqiGridData]);
+
   // Stops that have been downloaded for offline use
   const offlinePins = useMemo(() => {
     if (mapLayer !== 'offline') return [];
@@ -819,8 +886,55 @@ export default function TripWorkspace() {
 
   const handleBoundsChange = useCallback((bounds, zoom) => {
     if (activeTab !== 'map') return;
-    // POI pins only make sense on normal and satellite views
     const currentLayer = mapLayerRef.current;
+
+    // ── Gas layer: load gas stations from Overpass ──────────────────────────
+    if (currentLayer === 'gas') {
+      setAttractionPins([]);
+      setAttractionStatus(null);
+      clearTimeout(gasDebounce.current);
+      gasDebounce.current = setTimeout(async () => {
+        const s = bounds.getSouth().toFixed(4);
+        const w = bounds.getWest().toFixed(4);
+        const n = bounds.getNorth().toFixed(4);
+        const e = bounds.getEast().toFixed(4);
+        const cacheKey = `gas:${s},${w},${n},${e}`;
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+          try { setGasPins(JSON.parse(cached)); return; } catch { /* fall through */ }
+        }
+        const query = `[out:json][timeout:15];node["amenity"="fuel"](${s},${w},${n},${e});out 200;`;
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ query }),
+            signal: AbortSignal.timeout(20000),
+          });
+          if (!res.ok) { setGasPins([]); return; }
+          const data = await res.json();
+          const pins = (data.elements || []).map(el => ({
+            id: `gas-${el.type}-${el.id}`,
+            name: el.tags?.name || el.tags?.brand || '',
+            lat: el.lat ?? el.center?.lat,
+            lng: el.lon ?? el.center?.lon,
+            tags: el.tags,
+          })).filter(p => p.lat != null && p.lng != null);
+          setGasPins(pins);
+          try { sessionStorage.setItem(cacheKey, JSON.stringify(pins)); } catch { /* storage full */ }
+        } catch (err) {
+          console.warn('[gas] fetch failed:', err.message);
+          setGasPins([]);
+        }
+      }, 600);
+      return;
+    }
+
+    // Clear gas pins when not on gas layer
+    setGasPins([]);
+
+    // ── Attraction layer: POI pins on normal/satellite only ─────────────────
     if (!['normal', 'satellite'].includes(currentLayer)) {
       setAttractionPins([]);
       setAttractionStatus(null);
@@ -1101,6 +1215,7 @@ export default function TripWorkspace() {
             attractionPins={attractionPins}
             onAttractionPinClick={pin => setSelectedAttraction(pin)}
             attractionStatus={attractionStatus}
+            gasPins={gasPins}
             onBoundsChange={handleBoundsChange}
             mapTileProvider={settings.mapTileProvider ?? 'stadia'}
           />
@@ -1143,6 +1258,11 @@ export default function TripWorkspace() {
             <button className="map-ctrl-btn map-ctrl-trails" title="Find trails on AllTrails" onClick={handleFindTrails}>
               <span className="map-ctrl-icon">🥾</span>
             </button>
+            {routeStops.length > 0 && (
+              <button className="map-ctrl-btn" title="Add photo to nearest stop" onClick={handlePhotoByLocation}>
+                <span className="map-ctrl-icon">📸</span>
+              </button>
+            )}
           </div>
           {showMapLayers && (
             <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
@@ -1471,6 +1591,12 @@ export default function TripWorkspace() {
                 offlineStatus={offlineStatus}
                 tripId={id}
                 offlineRadiusMi={settings.offlineRadiusMi ?? 5}
+                weatherAlerts={weatherAlerts}
+                fuelEfficiencyMpg={settings.fuelEfficiencyMpg ?? 25}
+                fuelPricePerGallon={settings.fuelPricePerGallon ?? null}
+                onPhotoByLocation={handlePhotoByLocation}
+                completedDist={completedDist}
+                remainingDist={remainingDist}
               />
             )}
             {activeTab === 'gallery' && (

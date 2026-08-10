@@ -1769,6 +1769,28 @@ body {
 .stat-label { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
 .more-empty { font-size: .85rem; color: var(--text-muted); }
 
+/* Trip progress bar */
+.more-progress-bar-wrap { height: 6px; background: var(--bg); border-radius: 3px; margin-top: .75rem; overflow: hidden; }
+.more-progress-bar { height: 100%; background: var(--primary); border-radius: 3px; transition: width .4s; }
+
+/* Fuel cost row */
+.more-fuel-row { display: flex; align-items: center; gap: .6rem; margin-top: .75rem; font-size: .85rem; color: var(--text); }
+.more-fuel-icon { font-size: 1.1rem; }
+.more-fuel-label { display: block; font-size: .75rem; color: var(--text-muted); }
+.more-fuel-value { display: block; font-weight: 700; }
+.more-fuel-settings-btn { margin-left: auto; }
+.more-fuel-hint { color: var(--text-muted); font-size: .82rem; gap: .4rem; }
+.more-fuel-link { color: var(--primary); text-decoration: underline; }
+
+/* Weather / AQI alerts section */
+.more-alerts-section { border: 1px solid rgba(251,191,36,0.4); background: rgba(251,191,36,0.06); border-radius: 12px; padding: .75rem; }
+.more-alerts-list { display: flex; flex-direction: column; gap: .5rem; margin-top: .4rem; }
+.more-alert-row { display: flex; align-items: flex-start; gap: .5rem; }
+.more-alert-emoji { font-size: 1.1rem; flex-shrink: 0; }
+.more-alert-body { display: flex; flex-direction: column; }
+.more-alert-label { font-weight: 600; font-size: .88rem; }
+.more-alert-sub { font-size: .78rem; color: var(--text-muted); }
+
 /* Offline maps section */
 .offline-snapshot-info {
   background: var(--bg);
