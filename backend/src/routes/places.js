@@ -5,6 +5,93 @@ const { recordOutgoing } = require('../middleware/metrics');
 
 const router = express.Router();
 
+// ── Overpass response cache ───────────────────────────────────────────────────
+// Keyed by the raw query string.  Entries expire after POI_CACHE_TTL_MS.
+const POI_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const poiCache = new Map(); // query → { data, expiresAt }
+
+function poiCacheGet(query) {
+  const entry = poiCache.get(query);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { poiCache.delete(query); return null; }
+  return entry.data;
+}
+
+function poiCacheSet(query, data) {
+  poiCache.set(query, { data, expiresAt: Date.now() + POI_CACHE_TTL_MS });
+}
+
+// ── HERE Places helpers ───────────────────────────────────────────────────────
+const HERE_CATEGORY_QUERIES = {
+  gas:        'gas station',
+  restaurant: 'restaurant',
+  hotel:      'hotel',
+  campground:  'campground camping',
+  ev:         'electric vehicle charging station',
+  grocery:    'grocery supermarket',
+  pharmacy:   'pharmacy',
+  parking:    'parking',
+  attraction: 'tourist attraction',
+};
+
+function normalizeHerePlace(item, category) {
+  const lat = item.position?.lat;
+  const lng = item.position?.lng;
+  if (lat == null || lng == null) return null;
+  return {
+    id: `here-${item.id}`,
+    name: item.title,
+    displayName: item.address?.label || item.title,
+    lat,
+    lng,
+    type: category,
+    category,
+    source: 'here',
+    extratags: {
+      opening_hours: item.openingHours?.[0]?.text?.join(', ') || null,
+      phone: item.contacts?.[0]?.phone?.[0]?.value || null,
+      website: item.contacts?.[0]?.www?.[0]?.value || null,
+    },
+  };
+}
+
+// ── TomTom Places helpers ─────────────────────────────────────────────────────
+const TOMTOM_CATEGORY_IDS = {
+  gas:        '7311',    // Petrol Station
+  restaurant: '7315',    // Restaurant
+  hotel:      '7314',    // Hotel/Motel
+  campground:  '9927004', // Camping Ground
+  ev:         '7309',    // Electric Vehicle Station
+  grocery:    '9361',    // Grocery/Supermarket
+  pharmacy:   '7326',    // Pharmacy
+  parking:    '7313',    // Open Parking Area
+  attraction: '7376',    // Tourist Attraction
+};
+
+function normalizeTomTomPlace(poi, category) {
+  const lat = poi.position?.lat;
+  const lng = poi.position?.lon;
+  if (lat == null || lng == null) return null;
+  const addr = poi.address;
+  const displayName = addr
+    ? [addr.streetName, addr.municipality, addr.country].filter(Boolean).join(', ')
+    : null;
+  return {
+    id: `tomtom-${poi.id}`,
+    name: poi.poi?.name || poi.type,
+    displayName: displayName || poi.poi?.name || poi.type,
+    lat,
+    lng,
+    type: category,
+    category,
+    source: 'tomtom',
+    extratags: {
+      phone: poi.poi?.phone || null,
+      website: poi.poi?.url || null,
+    },
+  };
+}
+
 // New Places API (v1) base URL
 const PLACES_NEW_BASE = 'https://places.googleapis.com/v1/places';
 // Legacy API base (kept for nearby endpoint which still works)
@@ -343,6 +430,14 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
   if (!query.includes('(') || !/\(-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+\)/.test(query)) {
     return res.status(400).json({ error: 'query must include a bounding box' });
   }
+
+  // Serve from cache when available
+  const cached = poiCacheGet(query);
+  if (cached) {
+    res.set('X-Cache', 'HIT');
+    return res.json(cached);
+  }
+
   const preferredProvider = Object.prototype.hasOwnProperty.call(OVERPASS_ENDPOINTS, provider) ? provider : 'overpass';
   const t0 = Date.now();
   try {
@@ -356,12 +451,95 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
     }
     recordOutgoing('overpass', true, durationMs);
     const data = await upstream.json();
+    poiCacheSet(query, data);
+    res.set('X-Cache', 'MISS');
     res.json(data);
   } catch (err) {
     const durationMs = Date.now() - t0;
     recordOutgoing('overpass', false, durationMs);
     console.error(`[poi] Overpass fetch failed after ${durationMs}ms:`, err.message, err.cause?.message || '');
     res.status(502).json({ error: 'POI data unavailable' });
+  }
+});
+
+// GET /api/places/here-nearby?lat=&lng=&category=&radius=
+// Proxies a HERE Discover search so the HERE_API_KEY stays server-side.
+router.get('/here-nearby', placesRateLimit, requireAuth, async (req, res) => {
+  const apiKey = process.env.HERE_API_KEY;
+  if (!apiKey) {
+    console.warn('HERE nearby skipped: HERE_API_KEY is not configured');
+    return res.json([]);
+  }
+  const { lat, lng, category, radius = 5000 } = req.query;
+  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng are required' });
+  const q = HERE_CATEGORY_QUERIES[category];
+  if (!q) return res.json([]);
+  const t0 = Date.now();
+  try {
+    const params = new URLSearchParams({
+      at: `${lat},${lng}`,
+      q,
+      limit: '20',
+      in: `circle:${lat},${lng};r=${radius}`,
+      apiKey,
+    });
+    const response = await fetch(
+      `https://discover.search.hereapi.com/v1/discover?${params}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!response.ok) {
+      recordOutgoing('herePlaces', false, Date.now() - t0);
+      console.error('HERE nearby HTTP error:', response.status, category);
+      return res.json([]);
+    }
+    recordOutgoing('herePlaces', true, Date.now() - t0);
+    const data = await response.json();
+    res.json((data.items || []).map(item => normalizeHerePlace(item, category)).filter(Boolean).slice(0, 20));
+  } catch (err) {
+    recordOutgoing('herePlaces', false, Date.now() - t0);
+    console.error('HERE nearby exception:', err.message);
+    res.json([]);
+  }
+});
+
+// GET /api/places/tomtom-nearby?lat=&lng=&category=&radius=
+// Proxies a TomTom Nearby Search so the TOMTOM_API_KEY stays server-side.
+router.get('/tomtom-nearby', placesRateLimit, requireAuth, async (req, res) => {
+  const apiKey = process.env.TOMTOM_API_KEY;
+  if (!apiKey) {
+    console.warn('TomTom nearby skipped: TOMTOM_API_KEY is not configured');
+    return res.json([]);
+  }
+  const { lat, lng, category, radius = 5000 } = req.query;
+  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng are required' });
+  const categorySet = TOMTOM_CATEGORY_IDS[category];
+  if (!categorySet) return res.json([]);
+  const t0 = Date.now();
+  try {
+    const params = new URLSearchParams({
+      lat,
+      lon: lng,
+      radius: String(Math.min(Number(radius), 50000)),
+      categorySet,
+      limit: '20',
+      key: apiKey,
+    });
+    const response = await fetch(
+      `https://api.tomtom.com/search/2/nearbySearch/.json?${params}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!response.ok) {
+      recordOutgoing('tomtomPlaces', false, Date.now() - t0);
+      console.error('TomTom nearby HTTP error:', response.status, category);
+      return res.json([]);
+    }
+    recordOutgoing('tomtomPlaces', true, Date.now() - t0);
+    const data = await response.json();
+    res.json((data.results || []).map(poi => normalizeTomTomPlace(poi, category)).filter(Boolean).slice(0, 20));
+  } catch (err) {
+    recordOutgoing('tomtomPlaces', false, Date.now() - t0);
+    console.error('TomTom nearby exception:', err.message);
+    res.json([]);
   }
 });
 

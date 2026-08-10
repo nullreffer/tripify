@@ -113,27 +113,32 @@ let fireCacheTs = 0;
 
 // GET /api/aqi/fires
 // Returns active fire detections from NASA FIRMS (MODIS + VIIRS) for the last 24 hours.
-// No API key required for the standard CSV feed.
-// Response: Array of { lat, lng, brightness, confidence, satellite, acq_date, acq_time, frp }
+// When NASA_FIRMS_MAP_KEY is set the authenticated NRT API is used (more reliable,
+// ~10-minute latency).  Without a key the public bulk-CSV feed is used as a fallback.
+// Register for a free MAP_KEY at https://firms.modaps.eosdis.nasa.gov/api/map_key/
 router.get('/fires', aqiPointLimit, requireAuth, async (_req, res) => {
   const now = Date.now();
   if (fireCache && now - fireCacheTs < FIRE_CACHE_TTL_MS) {
     return res.json(fireCache);
   }
 
+  const mapKey = process.env.NASA_FIRMS_MAP_KEY;
+
   try {
-    // FIRMS public CSV feed — last 24 h global MODIS active fires, no key needed.
-    // VIIRS I-Band (375 m resolution) is used when available; MODIS (1 km) is the fallback.
+    let modisUrl, viirsUrl;
+    if (mapKey) {
+      // Authenticated NRT API — small, fast, near-real-time
+      modisUrl = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${mapKey}/MODIS_NRT/world/1`;
+      viirsUrl = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${mapKey}/VIIRS_SNPP_NRT/world/1`;
+    } else {
+      // Public bulk CSV feeds — no key needed but larger files, occasional failures
+      modisUrl = 'https://firms.modaps.eosdis.nasa.gov/data/active_fire/modis-c6.1/csv/MODIS_C6_1_Global_24h.csv';
+      viirsUrl = 'https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv';
+    }
     const t0 = Date.now();
     const [modisRes, viirsRes] = await Promise.allSettled([
-      fetch(
-        'https://firms.modaps.eosdis.nasa.gov/data/active_fire/modis-c6.1/csv/MODIS_C6_1_Global_24h.csv',
-        { signal: AbortSignal.timeout(15000) }
-      ),
-      fetch(
-        'https://firms.modaps.eosdis.nasa.gov/data/active_fire/suomi-npp-viirs-c2/csv/SUOMI_VIIRS_C2_Global_24h.csv',
-        { signal: AbortSignal.timeout(15000) }
-      ),
+      fetch(modisUrl, { signal: AbortSignal.timeout(15000) }),
+      fetch(viirsUrl, { signal: AbortSignal.timeout(15000) }),
     ]);
     recordOutgoing('nasaFirms', modisRes.status === 'fulfilled' && modisRes.value?.ok, Date.now() - t0);
 

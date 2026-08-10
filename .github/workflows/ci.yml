@@ -59,6 +59,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Bump backend version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          npm --prefix backend version patch --no-git-tag-version
+          git add backend/package.json
+          git commit -m "chore: bump version [skip ci]"
+          git push
+
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
