@@ -119,7 +119,7 @@ function makeAttractionIcon(name) {
   const html = `<div style="
     position:relative;
     display:flex;flex-direction:column;align-items:center;
-    pointer-events:none;
+    pointer-events:auto;
   ">
     <div style="
       width:30px;height:30px;border-radius:50%;
@@ -409,6 +409,7 @@ const TripMap = forwardRef(function TripMap(
     aqiOverlayRadiusMeters = AQI_OVERLAY_RADIUS_METERS_DEFAULT,
     firePins = [], onFirePinClick,
     attractionPins = [], onAttractionPinClick, onBoundsChange,
+    attractionStatus = null,
     mapTileProvider = 'stadia' },
   mapRef
 ) {
@@ -436,25 +437,23 @@ const TripMap = forwardRef(function TripMap(
     : null;
 
   const osmNormalUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-  const osmAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  const osmDarkUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const osmNormalAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  const osmDarkAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  // Legacy alias kept for the satellite label overlay which still uses osmAttribution variable
+  const osmAttribution = osmNormalAttribution;
 
   const tileLayerByMode = {
     normal: darkMode
       ? {
-        // Stadia Alidade Smooth Dark — progressive labels: countries/oceans at z2,
-        // cities/states at z4, national parks/lakes/rivers at z6-8,
-        // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
-        // When OSM provider is selected we fall back to the standard OSM tile style
-        // because OpenStreetMap.org does not offer a dark-mode tile variant.
-        url: mapTileProvider === 'osm' ? osmNormalUrl : stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'),
-        attribution: mapTileProvider === 'osm' ? osmAttribution : '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        // Dark mode: Stadia Alidade Smooth Dark (Stadia provider) or CartoDB DarkMatter (OSM provider)
+        url: mapTileProvider === 'osm' ? osmDarkUrl : stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'),
+        attribution: mapTileProvider === 'osm' ? osmDarkAttribution : '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }
       : {
-        // Stadia Alidade Smooth — progressive labels: countries/oceans at z2,
-        // cities/states at z4, national parks/lakes/rivers at z6-8,
-        // campgrounds/mountains/airports at z10-12, streets/POI at z14+.
+        // Light mode: Stadia Alidade Smooth (Stadia provider) or standard OSM (OSM provider)
         url: mapTileProvider === 'osm' ? osmNormalUrl : stadiaUrl('https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png'),
-        attribution: mapTileProvider === 'osm' ? osmAttribution : '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        attribution: mapTileProvider === 'osm' ? osmNormalAttribution : '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
     satellite: {
       url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -621,6 +620,17 @@ const TripMap = forwardRef(function TripMap(
               <span>Active fire ({firePins.length} detection{firePins.length !== 1 ? 's' : ''}, last 24 h)</span>
             </div>
           )}
+        </div>
+      )}
+      {/* POI debug chip — always visible so on-device debugging is possible */}
+      {attractionStatus && (
+        <div style={{
+          position: 'absolute', top: '10px', left: '10px', zIndex: 1100,
+          background: 'rgba(15,23,42,0.85)', color: '#fff',
+          borderRadius: '6px', padding: '3px 8px', fontSize: '11px',
+          pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.15)',
+        }}>
+          {attractionStatus}
         </div>
       )}
     </div>

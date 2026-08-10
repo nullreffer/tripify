@@ -354,7 +354,12 @@ export default function StopSheet({ stop, stops, days = [], route, userLocation,
                  {canEdit && (
                   <button
                     className={`sheet-action-btn${stop.reached ? ' btn-green' : ' btn-orange'}`}
-                    onClick={onReach}
+                    onClick={() => {
+                      const isArriving = !stop.reached;
+                      onReach();
+                      // Auto-switch to edit tab so the photo section is immediately visible
+                      if (isArriving) setTab('edit');
+                    }}
                   >
                     {stop.reached ? '↩ Unarrived' : '✓ Arrived'}
                   </button>
