@@ -4,6 +4,7 @@ export const DEFAULTS = {
   units: 'imperial',         // 'imperial' | 'metric'
   mapStyle: 'auto',          // 'auto' | 'light' | 'dark'
   mapTileProvider: 'stadia', // 'stadia' | 'osm'
+  poiProvider: 'overpass',   // 'overpass' | 'mirror' — which Overpass endpoint to use for POI/gas data
   orientation: 'portrait',   // 'portrait' | 'auto'
   pinTapZoom: 15,             // zoom level when tapping a pin (10–18)
   offlineRadiusMi: 5,         // radius in miles for offline tile download

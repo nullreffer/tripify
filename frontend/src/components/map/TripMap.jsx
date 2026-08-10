@@ -437,10 +437,12 @@ const TripMap = forwardRef(function TripMap(
     offlinePins = [], offlineRadiusMeters = 8047,
     aqiPins = [], onAqiPinClick, aqiTilesAvailable = false,
     aqiOverlayRadiusMeters = AQI_OVERLAY_RADIUS_METERS_DEFAULT,
+    aqiStatus = null,
     firePins = [], onFirePinClick,
     attractionPins = [], onAttractionPinClick, onBoundsChange,
     attractionStatus = null,
     gasPins = [], onGasPinClick,
+    gasStatus = null,
     mapTileProvider = 'stadia' },
   mapRef
 ) {
@@ -679,15 +681,15 @@ const TripMap = forwardRef(function TripMap(
           }
         </div>
       )}
-      {/* POI debug chip — always visible so on-device debugging is possible */}
-      {attractionStatus && (
+      {/* Status chip — shows whichever layer's status is active */}
+      {(attractionStatus || (isAqiLayer && aqiStatus) || (isGasLayer && gasStatus)) && (
         <div style={{
           position: 'absolute', top: '10px', left: '10px', zIndex: 1100,
           background: 'rgba(15,23,42,0.85)', color: '#fff',
           borderRadius: '6px', padding: '3px 8px', fontSize: '11px',
           pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.15)',
         }}>
-          {attractionStatus}
+          {attractionStatus || (isAqiLayer && aqiStatus) || (isGasLayer && gasStatus)}
         </div>
       )}
     </div>

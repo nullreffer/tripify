@@ -271,6 +271,8 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
 // POST /api/places/poi
 // Proxies an Overpass QL query to the public interpreter so that errors are
 // visible in backend logs and the API token is never exposed to clients.
+// Supports an optional `provider` field: 'overpass' (default) uses the primary
+// overpass-api.de endpoint; 'mirror' uses an alternative community instance.
 const overpassRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
@@ -280,8 +282,55 @@ const overpassRateLimit = rateLimit({
   message: { error: 'Too many requests. Please slow down.' },
 });
 
+const OVERPASS_ENDPOINTS = {
+  overpass: 'https://overpass-api.de/api/interpreter',
+  mirror:   'https://overpass.kumi.systems/api/interpreter',
+};
+// When the primary endpoint returns a retriable error (406/429/503), automatically
+// fall back to the mirror endpoint so temporary overload or rate-limit events are
+// transparent to the user.
+const OVERPASS_RETRIABLE = new Set([406, 429, 503]);
+
+async function fetchOverpassWithFallback(query, preferredProvider) {
+  const primary = OVERPASS_ENDPOINTS[preferredProvider] || OVERPASS_ENDPOINTS.overpass;
+  const fallback = primary === OVERPASS_ENDPOINTS.overpass
+    ? OVERPASS_ENDPOINTS.mirror
+    : OVERPASS_ENDPOINTS.overpass;
+  const endpoints = [primary, fallback];
+
+  let lastStatus = null;
+  let lastBody = '';
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': '*/*',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(20000),
+      });
+      if (res.ok) return res;
+      lastStatus = res.status;
+      lastBody = await res.text().catch(() => '');
+      if (!OVERPASS_RETRIABLE.has(res.status)) {
+        // Non-retriable — surface the original status rather than trying the mirror
+        const errRes = new Response(lastBody, { status: res.status });
+        return errRes;
+      }
+      console.warn(`[poi] Overpass ${url} → HTTP ${res.status}; trying next endpoint`);
+    } catch (err) {
+      console.warn(`[poi] Overpass ${url} fetch error:`, err.message);
+      if (url === endpoints[endpoints.length - 1]) throw err;
+    }
+  }
+  // All endpoints failed — surface the last error status
+  return new Response(lastBody, { status: lastStatus || 502 });
+}
+
 router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
-  const { query } = req.body;
+  const { query, provider } = req.body;
   if (!query || typeof query !== 'string') {
     return res.status(400).json({ error: 'query is required' });
   }
@@ -294,14 +343,10 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
   if (!query.includes('(') || !/\(-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+\)/.test(query)) {
     return res.status(400).json({ error: 'query must include a bounding box' });
   }
+  const preferredProvider = Object.prototype.hasOwnProperty.call(OVERPASS_ENDPOINTS, provider) ? provider : 'overpass';
   const t0 = Date.now();
   try {
-    const upstream = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `data=${encodeURIComponent(query)}`,
-      signal: AbortSignal.timeout(20000),
-    });
+    const upstream = await fetchOverpassWithFallback(query, preferredProvider);
     const durationMs = Date.now() - t0;
     if (!upstream.ok) {
       const errBody = await upstream.text().catch(() => '');
