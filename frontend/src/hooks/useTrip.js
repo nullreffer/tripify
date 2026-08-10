@@ -332,6 +332,10 @@ export function useTrip(tripId) {
         body: JSON.stringify(updates)
       });
       if (!res.ok) throw new Error('Failed');
+      const item = await res.json();
+      setCategoriesT(prev => prev.map(c => c.id === catId
+        ? { ...c, items: c.items.map(i => i.id === itemId ? item : i) }
+        : c));
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
   }, [tripId, load, setCategoriesT]);
@@ -349,6 +353,70 @@ export function useTrip(tripId) {
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
   }, [tripId, load, setCategoriesT]);
+
+  const addItemAssociation = useCallback(async (itemId, target) => {
+    markSaving();
+    try {
+      const res = await fetch(`${API}/api/trips/${tripId}/items/items/${itemId}/associations`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(target)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to associate item');
+
+      setCategoriesT(prev => prev.map(category => ({
+        ...category,
+        items: (category.items || []).map(item => item.id === itemId
+          ? { ...item, associations: [...(item.associations || []), data] }
+          : item)
+      })));
+      setDaysT(prev => prev.map(day => {
+        if (data.entry?.id) {
+          return {
+            ...day,
+            entries: (day.entries || []).map(entry => entry.id === data.entry.id
+              ? { ...entry, itemAssociations: [...(entry.itemAssociations || []), data] }
+              : entry)
+          };
+        }
+        if (data.day?.id === day.id) {
+          return {
+            ...day,
+            itemAssociations: [...(day.itemAssociations || []), data]
+          };
+        }
+        return day;
+      }));
+      markSaved();
+      return data;
+    } catch (err) { markSaveError(); throw err; }
+  }, [tripId, setCategoriesT, setDaysT]);
+
+  const deleteItemAssociation = useCallback(async (itemId, assocId) => {
+    setCategoriesT(prev => prev.map(category => ({
+      ...category,
+      items: (category.items || []).map(item => item.id === itemId
+        ? { ...item, associations: (item.associations || []).filter(assoc => assoc.id !== assocId) }
+        : item)
+    })));
+    setDaysT(prev => prev.map(day => ({
+      ...day,
+      itemAssociations: (day.itemAssociations || []).filter(assoc => assoc.id !== assocId),
+      entries: (day.entries || []).map(entry => ({
+        ...entry,
+        itemAssociations: (entry.itemAssociations || []).filter(assoc => assoc.id !== assocId)
+      }))
+    })));
+    markSaving();
+    try {
+      const res = await fetch(`${API}/api/trips/${tripId}/items/items/${itemId}/associations/${assocId}`, {
+        method: 'DELETE', credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to remove association');
+      markSaved();
+    } catch (err) { markSaveError(); load(); throw err; }
+  }, [tripId, load, setCategoriesT, setDaysT]);
 
   // ── Days mutations ─────────────────────────────────────────────────────────
 
@@ -440,6 +508,22 @@ export function useTrip(tripId) {
     } catch (err) { markSaveError(); load(); throw err; }
   }, [tripId, load, setDaysT]);
 
+  const rescheduleDays = useCallback(async ({ delayMinutes, fromDayId } = {}) => {
+    markSaving();
+    try {
+      const res = await fetch(`${API}/api/trips/${tripId}/days/reschedule`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delayMinutes, fromDayId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to reschedule itinerary');
+      setDaysT(Array.isArray(data.days) ? data.days : []);
+      markSaved();
+      return data;
+    } catch (err) { markSaveError(); throw err; }
+  }, [tripId, setDaysT]);
+
   // ── Reservation mutations ──────────────────────────────────────────────────
 
   const addReservation = useCallback(async (data) => {
@@ -477,18 +561,30 @@ export function useTrip(tripId) {
       if (!res.ok) throw new Error('Failed');
       const reservation = await res.json();
       setReservationsT(prev => prev.map(r => r.id === resId ? reservation : r));
+      setDaysT(prev => prev.map(day => ({
+        ...day,
+        entries: (day.entries || []).map(entry => entry.reservation?.id === resId
+          ? { ...entry, reservation }
+          : entry)
+      })));
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load, setReservationsT]);
+  }, [tripId, load, setReservationsT, setDaysT]);
 
   const deleteReservation = useCallback(async (resId) => {
     setReservationsT(prev => prev.filter(r => r.id !== resId));
+    setDaysT(prev => prev.map(day => ({
+      ...day,
+      entries: (day.entries || []).map(entry => entry.reservation?.id === resId
+        ? { ...entry, reservation: null }
+        : entry)
+    })));
     markSaving();
     try {
       await fetch(`${API}/api/trips/${tripId}/reservations/${resId}`, { method: 'DELETE', credentials: 'include' });
       markSaved();
     } catch (err) { markSaveError(); load(); throw err; }
-  }, [tripId, load, setReservationsT]);
+  }, [tripId, load, setReservationsT, setDaysT]);
 
   // ── References ─────────────────────────────────────────────────────────────
 
@@ -547,8 +643,8 @@ export function useTrip(tripId) {
   return {
     trip, stops, categories, references, days, reservations, loading, error, saveState, isOffline,
     addStop, updateStop, deleteStop, reorderStops, markReached, uploadStopPhoto,
-    addCategory, deleteCategory, addItem, updateItem, deleteItem,
-    addDay, updateDay, deleteDay, addEntry, updateEntry, deleteEntry,
+    addCategory, deleteCategory, addItem, updateItem, deleteItem, addItemAssociation, deleteItemAssociation,
+    addDay, updateDay, deleteDay, addEntry, updateEntry, deleteEntry, rescheduleDays,
     addReservation, updateReservation, deleteReservation,
     addReference, deleteReference, updateTrip, deleteTrip, reload: load
   };

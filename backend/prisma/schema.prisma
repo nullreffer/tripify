@@ -123,20 +123,21 @@ model ItemCategory {
 }
 
 model TripItem {
-  id         String       @id @default(cuid())
-  categoryId String
-  category   ItemCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  name       String
-  done       Boolean      @default(false)
-  color      String?
-  order      Int          @default(0)
-  quantity   Float?
-  unit       String?
-  notes      String?
-  required   Boolean      @default(false)
-  status     String       @default("have")
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  id           String            @id @default(cuid())
+  categoryId   String
+  category     ItemCategory      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name         String
+  done         Boolean           @default(false)
+  color        String?
+  order        Int               @default(0)
+  quantity     Float?
+  unit         String?
+  notes        String?
+  required     Boolean           @default(false)
+  status       String            @default("have")
+  associations ItemAssociation[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 }
 
 model ExternalReference {
@@ -176,39 +177,55 @@ enum EntryType {
 }
 
 model TripDay {
-  id        String       @id @default(cuid())
-  tripId    String
-  trip      Trip         @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  date      DateTime?
-  title     String?
-  location  String?
-  notes     String?
-  shower    ShowerStatus @default(UNKNOWN)
-  order     Int          @default(0)
-  entries   DayEntry[]
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id               String            @id @default(cuid())
+  tripId           String
+  trip             Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  date             DateTime?
+  title            String?
+  location         String?
+  notes            String?
+  shower           ShowerStatus      @default(UNKNOWN)
+  order            Int               @default(0)
+  entries          DayEntry[]
+  itemAssociations ItemAssociation[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 }
 
 model DayEntry {
-  id           String       @id @default(cuid())
-  dayId        String
-  day          TripDay      @relation(fields: [dayId], references: [id], onDelete: Cascade)
-  type         EntryType
-  title        String
-  description  String?
-  startTime    String?
-  endTime      String?
-  durationMins Int?
-  order        Int          @default(0)
-  fromLocation String?
-  toLocation   String?
-  stopId       String?
-  stop         Stop?        @relation(fields: [stopId], references: [id], onDelete: SetNull)
-  reservation  Reservation?
-  metadata     Json?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id               String            @id @default(cuid())
+  dayId            String
+  day              TripDay           @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  type             EntryType
+  title            String
+  description      String?
+  startTime        String?
+  endTime          String?
+  durationMins     Int?
+  order            Int               @default(0)
+  fromLocation     String?
+  toLocation       String?
+  stopId           String?
+  stop             Stop?             @relation(fields: [stopId], references: [id], onDelete: SetNull)
+  reservation      Reservation?
+  itemAssociations ItemAssociation[]
+  metadata         Json?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model ItemAssociation {
+  id        String   @id @default(cuid())
+  itemId    String
+  item      TripItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  entryId   String?
+  entry     DayEntry? @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  dayId     String?
+  day       TripDay? @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([itemId, entryId])
+  @@unique([itemId, dayId])
 }
 
 model Reservation {

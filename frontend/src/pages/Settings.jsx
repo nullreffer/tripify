@@ -188,6 +188,49 @@ export default function Settings() {
           <div className="settings-divider" />
 
           <div className="settings-section">
+            <h3>⛽ Fuel Cost Estimator</h3>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>{settings.units === 'metric' ? 'Fuel efficiency (L/100 km)' : 'Fuel efficiency (MPG)'}</span>
+                <span className="settings-row-hint">
+                  Your vehicle's fuel efficiency. Currently: {settings.units === 'metric'
+                    ? `${settings.fuelEfficiencyMpg ?? 25} L/100 km`
+                    : `${settings.fuelEfficiencyMpg ?? 25} MPG`}
+                </span>
+              </div>
+              <input
+                type="number"
+                min={1}
+                max={settings.units === 'metric' ? 30 : 150}
+                step={0.1}
+                value={settings.fuelEfficiencyMpg ?? 25}
+                onChange={e => update('fuelEfficiencyMpg', Number(e.target.value) || 25)}
+                style={{ width: '80px' }}
+              />
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>{settings.units === 'metric' ? 'Fuel price (per liter)' : 'Fuel price (per gallon)'}</span>
+                <span className="settings-row-hint">
+                  Current fuel price — used to estimate trip fuel cost. Leave blank to skip cost estimate.
+                </span>
+              </div>
+              <input
+                type="number"
+                min={0}
+                max={20}
+                step={0.01}
+                placeholder={settings.units === 'metric' ? '$/L' : '$/gal'}
+                value={settings.fuelPricePerGallon ?? ''}
+                onChange={e => update('fuelPricePerGallon', e.target.value === '' ? null : Number(e.target.value))}
+                style={{ width: '80px' }}
+              />
+            </div>
+          </div>
+
+          <div className="settings-divider" />
+
+          <div className="settings-section">
             <h3>Notifications</h3>
             <div className="settings-row">
               <div className="settings-row-label">

@@ -268,4 +268,56 @@ router.get('/search', placesRateLimit, requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/places/poi
+// Proxies an Overpass QL query to the public interpreter so that errors are
+// visible in backend logs and the API token is never exposed to clients.
+const overpassRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many requests. Please slow down.' },
+});
+
+router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
+  const { query } = req.body;
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ error: 'query is required' });
+  }
+  // Guard against excessively large or globally-scoped queries
+  const MAX_QUERY_LEN = 2000;
+  if (query.length > MAX_QUERY_LEN) {
+    return res.status(400).json({ error: `query exceeds maximum length of ${MAX_QUERY_LEN} characters` });
+  }
+  // Require a bounding box to prevent global data dumps
+  if (!query.includes('(') || !/\(-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+\)/.test(query)) {
+    return res.status(400).json({ error: 'query must include a bounding box' });
+  }
+  const t0 = Date.now();
+  try {
+    const upstream = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `data=${encodeURIComponent(query)}`,
+      signal: AbortSignal.timeout(20000),
+    });
+    const durationMs = Date.now() - t0;
+    if (!upstream.ok) {
+      const errBody = await upstream.text().catch(() => '');
+      recordOutgoing('overpass', false, durationMs);
+      console.error(`[poi] Overpass HTTP ${upstream.status} after ${durationMs}ms:`, errBody.slice(0, 500));
+      return res.status(upstream.status).json({ error: `Overpass error ${upstream.status}` });
+    }
+    recordOutgoing('overpass', true, durationMs);
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err) {
+    const durationMs = Date.now() - t0;
+    recordOutgoing('overpass', false, durationMs);
+    console.error(`[poi] Overpass fetch failed after ${durationMs}ms:`, err.message, err.cause?.message || '');
+    res.status(502).json({ error: 'POI data unavailable' });
+  }
+});
+
 module.exports = router;

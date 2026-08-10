@@ -172,6 +172,8 @@ router.get('/fires', aqiPointLimit, requireAuth, async (_req, res) => {
           acq_time: idxTime >= 0 ? cols[idxTime]?.trim() || null : null,
           frp: idxFrp >= 0 ? parseFloat(cols[idxFrp]) || null : null,
           satellite: idxSat >= 0 ? cols[idxSat]?.trim() || null : null,
+          // Normalised source label used by the frontend filter
+          source: isViirs ? 'viirs' : 'modis',
         });
       }
       return results;

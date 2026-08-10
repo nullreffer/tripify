@@ -1570,11 +1570,12 @@ body {
 .cat-mark-all-btn:hover { opacity: 1; }
 .cat-body { padding: .25rem .5rem .5rem; background: var(--surface); }
 
+.item-row-wrap { border-bottom: 1px solid var(--border); }
+.item-row-wrap:last-child { border-bottom: none; }
 .item-row {
   display: flex; align-items: center; gap: .5rem;
-  padding: .4rem .25rem; border-bottom: 1px solid var(--border);
+  padding: .4rem .25rem;
 }
-.item-row:last-child { border-bottom: none; }
 .item-done .item-name { text-decoration: line-through; color: var(--text-muted); }
 .item-check {
   width: 22px; height: 22px; border-radius: 50%;
@@ -1586,10 +1587,11 @@ body {
 .item-name { flex: 1; font-size: .88rem; cursor: pointer; }
 .item-edit-input { flex: 1; border: none; border-bottom: 1.5px solid var(--primary); outline: none; font-size: .88rem; background: transparent; }
 .item-row-actions { display: flex; align-items: center; gap: .25rem; }
-.item-color-btn, .item-del-btn {
+.item-color-btn, .item-del-btn, .item-detail-btn {
   background: none; border: none; cursor: pointer; font-size: .95rem;
   padding: .1rem .25rem; color: var(--text-muted);
 }
+.item-detail-btn { font-size: 1rem; }
 .color-picker-row { display: flex; gap: .3rem; }
 .color-dot {
   width: 18px; height: 18px; border-radius: 50%; cursor: pointer;
@@ -1606,6 +1608,67 @@ body {
   background: var(--primary); color: #fff; border: none;
   border-radius: 50%; width: 22px; height: 22px;
   cursor: pointer; font-size: .9rem; line-height: 1;
+}
+.add-item-block { padding-top: .35rem; }
+.add-item-advanced-btn { border-top-style: dashed; }
+.item-row-detail {
+  padding: 0 .25rem .5rem 2rem;
+}
+.item-detail-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .75rem;
+}
+.item-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .6rem;
+}
+.item-detail-notes { grid-column: 1 / -1; }
+.item-required-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: .82rem;
+  margin-top: .65rem;
+}
+.item-required-toggle input { accent-color: var(--primary); }
+.item-association-count {
+  font-size: .72rem;
+  color: var(--text-muted);
+}
+.item-associations-panel {
+  margin-top: .5rem;
+}
+.item-associations-title {
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  margin-bottom: .35rem;
+}
+.item-associations-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+.item-association-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  padding: .2rem .45rem;
+  border-radius: 999px;
+  font-size: .74rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.item-detail-readonly {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  font-size: .82rem;
 }
 
 /* ═══ AI View ═══ */
@@ -1705,6 +1768,28 @@ body {
 .stat-num { display: block; font-size: 1.1rem; font-weight: 700; color: var(--primary); }
 .stat-label { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
 .more-empty { font-size: .85rem; color: var(--text-muted); }
+
+/* Trip progress bar */
+.more-progress-bar-wrap { height: 6px; background: var(--bg); border-radius: 3px; margin-top: .75rem; overflow: hidden; }
+.more-progress-bar { height: 100%; background: var(--primary); border-radius: 3px; transition: width .4s; }
+
+/* Fuel cost row */
+.more-fuel-row { display: flex; align-items: center; gap: .6rem; margin-top: .75rem; font-size: .85rem; color: var(--text); }
+.more-fuel-icon { font-size: 1.1rem; }
+.more-fuel-label { display: block; font-size: .75rem; color: var(--text-muted); }
+.more-fuel-value { display: block; font-weight: 700; }
+.more-fuel-settings-btn { margin-left: auto; }
+.more-fuel-hint { color: var(--text-muted); font-size: .82rem; gap: .4rem; }
+.more-fuel-link { color: var(--primary); text-decoration: underline; }
+
+/* Weather / AQI alerts section */
+.more-alerts-section { border: 1px solid rgba(251,191,36,0.4); background: rgba(251,191,36,0.06); border-radius: 12px; padding: .75rem; }
+.more-alerts-list { display: flex; flex-direction: column; gap: .5rem; margin-top: .4rem; }
+.more-alert-row { display: flex; align-items: flex-start; gap: .5rem; }
+.more-alert-emoji { font-size: 1.1rem; flex-shrink: 0; }
+.more-alert-body { display: flex; flex-direction: column; }
+.more-alert-label { font-weight: 600; font-size: .88rem; }
+.more-alert-sub { font-size: .78rem; color: var(--text-muted); }
 
 /* Offline maps section */
 .offline-snapshot-info {
@@ -1857,12 +1942,17 @@ body {
   background: #ecfeff;
   border: 1px solid #67e8f9;
 }
-.ws-fire-filter {
+.ws-fire-filters {
   position: absolute;
   left: 12px;
   right: 12px;
   bottom: 130px;
   z-index: 550;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.ws-fire-filter-row {
   display: flex;
   align-items: center;
   gap: .4rem;
@@ -2138,6 +2228,31 @@ body {
   flex-shrink: 0;
 }
 .day-card.adding { padding: .75rem; }
+.days-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .75rem;
+}
+.days-reschedule-summary {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: .7rem .9rem;
+  font-size: .84rem;
+  color: #1d4ed8;
+}
+:root.dark .days-reschedule-summary {
+  background: #172554;
+  border-color: #1d4ed8;
+  color: #bfdbfe;
+}
+.days-reschedule-conflicts {
+  margin-top: .45rem;
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
 
 .day-card-header {
   display: flex;
@@ -2183,6 +2298,14 @@ body {
   gap: .25rem;
 }
 .day-shower { font-size: .85rem; opacity: .7; }
+.day-warning-badge {
+  font-size: .72rem;
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  padding: .1rem .4rem;
+}
 
 /* Day form */
 .day-form-wrap { padding: .75rem; border-bottom: 1px solid var(--border); }
@@ -2207,6 +2330,9 @@ body {
 }
 .entry-card:last-child { border-bottom: none; }
 .entry-card.editing, .entry-card.adding { padding: .75rem; }
+.entry-card-warning {
+  background: #fffaf0;
+}
 
 .entry-card-left {
   display: flex;
@@ -2238,6 +2364,14 @@ body {
   color: var(--primary);
   font-weight: 600;
   white-space: nowrap;
+}
+.entry-warning-badge {
+  font-size: .72rem;
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  padding: .05rem .4rem;
 }
 .entry-title {
   font-size: .95rem;
@@ -2271,6 +2405,81 @@ body {
   border: 1px solid #fed7aa;
   border-radius: 6px;
   padding: .15rem .5rem;
+}
+.entry-warning-list {
+  margin-top: .35rem;
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+}
+.entry-warning-text {
+  font-size: .75rem;
+  color: #92400e;
+}
+.entry-items-block {
+  margin-top: .5rem;
+  padding-top: .45rem;
+  border-top: 1px dashed var(--border);
+}
+.entry-items-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  font-size: .76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+}
+.entry-inline-btn {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: .74rem;
+  font-weight: 600;
+}
+.entry-items-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  margin-top: .4rem;
+}
+.entry-item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .2rem .45rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: .74rem;
+}
+.entry-item-chip-status {
+  color: var(--text-muted);
+}
+.entry-item-chip-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: .9rem;
+  line-height: 1;
+}
+.entry-item-picker {
+  display: flex;
+  gap: .5rem;
+  margin-top: .45rem;
+}
+.entry-item-picker select {
+  flex: 1;
+  min-width: 0;
+  padding: .45rem .65rem;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .entry-card-actions {

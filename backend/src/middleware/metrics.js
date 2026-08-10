@@ -33,7 +33,7 @@ function normalisePath(path) {
 
 function ensureService(service) {
   if (!state.outgoing[service]) {
-    state.outgoing[service] = { success: 0, failure: 0, totalMs: 0, count: 0 };
+    state.outgoing[service] = { success: 0, failure: 0, totalMs: 0, count: 0, latencies: [] };
   }
   return state.outgoing[service];
 }
@@ -68,6 +68,8 @@ function recordOutgoing(service, success, durationMs) {
   const svc = ensureService(service);
   svc.count++;
   svc.totalMs += durationMs;
+  svc.latencies.push(durationMs);
+  if (svc.latencies.length > MAX_LATENCY_SAMPLES) svc.latencies.shift();
   if (success) svc.success++;
   else svc.failure++;
 }
@@ -87,11 +89,14 @@ function getSnapshot() {
 
   const outgoing = {};
   for (const [svc, d] of Object.entries(state.outgoing)) {
+    const sortedSvc = [...d.latencies].sort((a, b) => a - b);
     outgoing[svc] = {
       count: d.count,
       success: d.success,
       failure: d.failure,
       avgMs: d.count ? Math.round(d.totalMs / d.count) : null,
+      p50Ms: percentile(sortedSvc, 0.5),
+      p95Ms: percentile(sortedSvc, 0.95),
     };
   }
 
