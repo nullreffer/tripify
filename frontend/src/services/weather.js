@@ -37,15 +37,15 @@ function toDateKey(input) {
   return d.toISOString().slice(0, 10);
 }
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 export async function getWeather(lat, lng) {
   const params = new URLSearchParams({
-    latitude: String(lat),
-    longitude: String(lng),
-    current: 'temperature_2m,weather_code,wind_speed_10m',
-    daily: 'weather_code,temperature_2m_max,temperature_2m_min',
-    timezone: 'auto',
+    lat: String(lat),
+    lng: String(lng),
   });
-  const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
+  const res = await fetch(`${API_BASE}/api/weather/forecast?${params.toString()}`, {
+    credentials: 'include',
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) {

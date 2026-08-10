@@ -551,4 +551,139 @@ router.get('/tomtom-nearby', placesRateLimit, requireAuth, async (req, res) => {
   }
 });
 
+// ── Geocoding proxy ───────────────────────────────────────────────────────────
+// Proxies Nominatim and Overpass text-search so browsers don't call those
+// third-party endpoints directly.  The NOMINATIM_URL env var lets operators
+// point to a self-hosted Nominatim instance.
+
+const geocodingLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many requests. Please slow down.' },
+});
+
+function nominatimBase() {
+  return (process.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org').replace(/\/$/, '');
+}
+
+// GET /api/places/geocode?q=&limit=
+router.get('/geocode', geocodingLimit, requireAuth, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'q is required' });
+  const limit = Math.min(parseInt(req.query.limit, 10) || 8, 20);
+  const params = new URLSearchParams({ q, format: 'json', limit: String(limit), addressdetails: '1' });
+  try {
+    const t0 = Date.now();
+    const upstream = await fetch(`${nominatimBase()}/search?${params}`, {
+      headers: { 'Accept-Language': 'en', 'User-Agent': 'Azitrip/1.0' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!upstream.ok) {
+      recordOutgoing('nominatim', false, Date.now() - t0);
+      return res.status(upstream.status).json([]);
+    }
+    recordOutgoing('nominatim', true, Date.now() - t0);
+    res.json(await upstream.json());
+  } catch (err) {
+    console.error('Nominatim geocode proxy error:', err.message);
+    res.status(502).json([]);
+  }
+});
+
+// GET /api/places/geocode/viewbox?q=&viewbox=west,north,east,south&bounded=0&limit=
+router.get('/geocode/viewbox', geocodingLimit, requireAuth, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'q is required' });
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+  const params = new URLSearchParams({ q, format: 'json', limit: String(limit), addressdetails: '1', extratags: '1' });
+  if (req.query.viewbox) params.set('viewbox', req.query.viewbox);
+  if (req.query.bounded) params.set('bounded', req.query.bounded);
+  try {
+    const t0 = Date.now();
+    const upstream = await fetch(`${nominatimBase()}/search?${params}`, {
+      headers: { 'Accept-Language': 'en', 'User-Agent': 'Azitrip/1.0' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!upstream.ok) {
+      recordOutgoing('nominatim', false, Date.now() - t0);
+      return res.status(upstream.status).json([]);
+    }
+    recordOutgoing('nominatim', true, Date.now() - t0);
+    res.json(await upstream.json());
+  } catch (err) {
+    console.error('Nominatim viewbox proxy error:', err.message);
+    res.status(502).json([]);
+  }
+});
+
+// GET /api/places/reverse?lat=&lng=
+router.get('/reverse', geocodingLimit, requireAuth, async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: 'lat and lng are required' });
+  }
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lng), format: 'json' });
+  try {
+    const t0 = Date.now();
+    const upstream = await fetch(`${nominatimBase()}/reverse?${params}`, {
+      headers: { 'Accept-Language': 'en', 'User-Agent': 'Azitrip/1.0' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!upstream.ok) {
+      recordOutgoing('nominatim', false, Date.now() - t0);
+      return res.status(upstream.status).json(null);
+    }
+    recordOutgoing('nominatim', true, Date.now() - t0);
+    res.json(await upstream.json());
+  } catch (err) {
+    console.error('Nominatim reverse proxy error:', err.message);
+    res.status(502).json(null);
+  }
+});
+
+// POST /api/places/overpass-search
+// Proxies an Overpass QL text-search query (used by geocoding.js searchOverpass).
+router.post('/overpass-search', geocodingLimit, requireAuth, async (req, res) => {
+  const { query } = req.body;
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ error: 'query is required' });
+  }
+
+  const OVERPASS_INSTANCES = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+  ];
+  let lastErr;
+  for (const url of OVERPASS_INSTANCES) {
+    try {
+      const t0 = Date.now();
+      const upstream = await fetch(url, {
+        method: 'POST',
+        body: query,
+        headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Azitrip/1.0' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (upstream.status === 429 || upstream.status >= 500) {
+        recordOutgoing('overpass', false, Date.now() - t0);
+        lastErr = new Error(`HTTP ${upstream.status}`);
+        continue;
+      }
+      if (!upstream.ok) {
+        recordOutgoing('overpass', false, Date.now() - t0);
+        return res.status(upstream.status).json({ elements: [] });
+      }
+      recordOutgoing('overpass', true, Date.now() - t0);
+      return res.json(await upstream.json());
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  console.error('Overpass text-search proxy error:', lastErr?.message);
+  res.status(502).json({ elements: [] });
+});
+
 module.exports = router;

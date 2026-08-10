@@ -20,6 +20,8 @@ const reservationRoutes = require('./routes/reservations');
 const importRoutes = require('./routes/import');
 const placesRoutes = require('./routes/places');
 const aqiRoutes = require('./routes/aqi');
+const weatherRoutes = require('./routes/weather');
+const routingRoutes = require('./routes/routing');
 const adminRoutes = require('./routes/admin');
 const { router: notificationRoutes } = require('./routes/notifications');
 const { requestMetrics } = require('./middleware/metrics');
@@ -93,6 +95,8 @@ app.use('/api/import', importRoutes);
 app.use('/api/invites', inviteRouter);
 app.use('/api/places', placesRoutes);
 app.use('/api/aqi', aqiRoutes);
+app.use('/api/weather', weatherRoutes);
+app.use('/api/routing', routingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 
