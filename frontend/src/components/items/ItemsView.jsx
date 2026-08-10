@@ -1,14 +1,14 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { ITEM_COLORS } from '../../constants/pinTypes.js';
 
 const API = import.meta.env.VITE_API_URL || '';
 
 const ITEM_STATUSES = [
-  { key: 'need_to_buy',  label: 'Need to Buy',  icon: '🛒', color: '#ef4444' },
-  { key: 'have',         label: 'Have',          icon: '📦', color: '#94a3b8' },
-  { key: 'need_to_pack', label: 'Need to Pack',  icon: '🎒', color: '#f97316' },
-  { key: 'packed',       label: 'Packed',        icon: '✅', color: '#22c55e' },
-  { key: 'used',         label: 'Used',          icon: '🗑', color: '#64748b' },
+  { key: 'need_to_buy', label: 'Need to Buy', icon: '🛒', color: '#ef4444' },
+  { key: 'have', label: 'Have', icon: '📦', color: '#94a3b8' },
+  { key: 'need_to_pack', label: 'Need to Pack', icon: '🎒', color: '#f97316' },
+  { key: 'packed', label: 'Packed', icon: '✅', color: '#22c55e' },
+  { key: 'used', label: 'Used', icon: '🗑', color: '#64748b' },
 ];
 
 function nextStatus(current) {
@@ -24,7 +24,8 @@ function StatusBadge({ status, onClick }) {
       className="item-status-btn"
       style={{ color: s.color }}
       onClick={onClick}
-      title={`Status: ${s.label} (click to cycle)`}
+      title={`Status: ${s.label}${onClick ? ' (click to cycle)' : ''}`}
+      disabled={!onClick}
     >
       {s.icon}
     </button>
@@ -43,7 +44,79 @@ function ColorDot({ color, selected, onClick }) {
   );
 }
 
-function ItemRow({ item, catId, onUpdate, onDelete }) {
+function associationLabel(assoc) {
+  if (assoc.entry) {
+    const date = assoc.entry.day?.date ? new Date(assoc.entry.day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+    return `${date ? `${date} · ` : ''}${assoc.entry.title}`;
+  }
+  if (assoc.day) {
+    const date = assoc.day.date ? new Date(assoc.day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+    return `${date ? `${date} · ` : ''}${assoc.day.location || assoc.day.title || 'Trip day'}`;
+  }
+  return 'Linked';
+}
+
+function ItemForm({ initial = {}, onSave, onCancel, submitLabel = 'Save Item' }) {
+  const [name, setName] = useState(initial.name || '');
+  const [quantity, setQuantity] = useState(initial.quantity ?? '');
+  const [unit, setUnit] = useState(initial.unit || '');
+  const [notes, setNotes] = useState(initial.notes || '');
+  const [required, setRequired] = useState(Boolean(initial.required));
+  const [status, setStatus] = useState(initial.status || 'have');
+
+  const handleSave = () => {
+    if (!name.trim()) return;
+    onSave({
+      name: name.trim(),
+      quantity: quantity === '' ? null : Number(quantity),
+      unit: unit.trim() || null,
+      notes: notes.trim() || null,
+      required,
+      status
+    });
+  };
+
+  return (
+    <div className="item-detail-panel">
+      <div className="item-detail-grid">
+        <div className="entry-form-row">
+          <label>Name</label>
+          <input value={name} onChange={e => setName(e.target.value)} autoFocus />
+        </div>
+        <div className="entry-form-row">
+          <label>Status</label>
+          <select value={status} onChange={e => setStatus(e.target.value)}>
+            {ITEM_STATUSES.map(itemStatus => (
+              <option key={itemStatus.key} value={itemStatus.key}>{itemStatus.icon} {itemStatus.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="entry-form-row">
+          <label>Quantity</label>
+          <input type="number" min="0" step="0.25" value={quantity} onChange={e => setQuantity(e.target.value)} />
+        </div>
+        <div className="entry-form-row">
+          <label>Unit</label>
+          <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="e.g. pairs" />
+        </div>
+        <div className="entry-form-row item-detail-notes">
+          <label>Notes</label>
+          <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes" />
+        </div>
+      </div>
+      <label className="item-required-toggle">
+        <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)} />
+        Required item
+      </label>
+      <div className="entry-form-actions">
+        <button className="btn-ghost" onClick={onCancel}>Cancel</button>
+        <button className="btn-primary" onClick={handleSave} disabled={!name.trim()}>{submitLabel}</button>
+      </div>
+    </div>
+  );
+}
+
+function ItemRow({ item, catId, onUpdate, onDelete, canEdit }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(item.name);
   const [showColors, setShowColors] = useState(false);
@@ -60,76 +133,117 @@ function ItemRow({ item, catId, onUpdate, onDelete }) {
   };
 
   return (
-    <div className={`item-row${isPacked ? ' item-done' : ''}`}>
-      <StatusBadge
-        status={status}
-        onClick={() => {
-          const ns = nextStatus(status);
-          onUpdate(catId, item.id, { status: ns, done: ns === 'packed' });
-        }}
-      />
+    <div className={`item-row-wrap${isPacked ? ' item-done' : ''}`}>
+      <div className="item-row">
+        <StatusBadge
+          status={status}
+          onClick={canEdit ? () => {
+            const ns = nextStatus(status);
+            onUpdate(catId, item.id, { status: ns, done: ns === 'packed' });
+          } : undefined}
+        />
 
-      <div className="item-main">
-        {editing ? (
-          <input
-            className="item-edit-input"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            onBlur={saveEdit}
-            onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(false); }}
-            autoFocus
-          />
-        ) : (
-          <span className="item-name" onDoubleClick={() => setEditing(true)}>
-            {item.name}
-            {item.required && <span className="item-required-badge" title="Required">*</span>}
-          </span>
-        )}
-        <div className="item-meta">
-          {item.quantity != null && (
-            <span className="item-qty">{item.quantity}{item.unit ? ` ${item.unit}` : ''}</span>
+        <div className="item-main">
+          {editing ? (
+            <input
+              className="item-edit-input"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              onBlur={saveEdit}
+              onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(false); }}
+              autoFocus
+            />
+          ) : (
+            <span className="item-name" onDoubleClick={() => canEdit && setEditing(true)}>
+              {item.name}
+              {item.required && <span className="item-required-badge" title="Required">*</span>}
+            </span>
           )}
-          {item.notes && <span className="item-notes-preview">{item.notes}</span>}
+          <div className="item-meta">
+            {item.quantity != null && (
+              <span className="item-qty">{item.quantity}{item.unit ? ` ${item.unit}` : ''}</span>
+            )}
+            {item.notes && <span className="item-notes-preview">{item.notes}</span>}
+            {(item.associations || []).length > 0 && (
+              <span className="item-association-count">🔗 {(item.associations || []).length}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="item-row-actions">
+          {canEdit && (
+            <button
+              className={`item-pack-btn${isPacked ? ' packed' : ''}`}
+              onClick={() => onUpdate(catId, item.id, { status: isPacked ? 'need_to_pack' : 'packed', done: !isPacked })}
+              title={isPacked ? 'Mark not packed' : 'Mark packed'}
+            >
+              {isPacked ? '☑' : '☐'}
+            </button>
+          )}
+          {showColors && canEdit && (
+            <div className="color-picker-row">
+              {ITEM_COLORS.map(c => (
+                <ColorDot key={c.label} color={c.value} selected={item.color === c.value} onClick={() => { onUpdate(catId, item.id, { color: c.value }); setShowColors(false); }} />
+              ))}
+            </div>
+          )}
+          {canEdit && (
+            <button className="item-color-btn" onClick={() => setShowColors(prev => !prev)} title="Color">
+              {item.color && item.color !== 'none' ? <span style={{ color: item.color }}>●</span> : '○'}
+            </button>
+          )}
+          <button className="item-detail-btn" onClick={() => setShowDetail(prev => !prev)} title="Details">
+            {showDetail ? '▴' : '⋯'}
+          </button>
+          {canEdit && <button className="item-del-btn" onClick={() => onDelete(catId, item.id)} title="Delete">×</button>}
         </div>
       </div>
 
-      <div className="item-row-actions">
-        <button
-          className={`item-pack-btn${isPacked ? ' packed' : ''}`}
-          onClick={() => onUpdate(catId, item.id, { status: isPacked ? 'need_to_pack' : 'packed', done: !isPacked })}
-          title={isPacked ? 'Mark not packed' : 'Mark packed'}
-        >
-          {isPacked ? '☑' : '☐'}
-        </button>
-        {showColors && (
-          <div className="color-picker-row">
-            {ITEM_COLORS.map(c => (
-              <ColorDot key={c.label} color={c.value} selected={item.color === c.value} onClick={() => { onUpdate(catId, item.id, { color: c.value }); setShowColors(false); }} />
-            ))}
-          </div>
-        )}
-        <button className="item-color-btn" onClick={() => setShowColors(prev => !prev)} title="Color">
-          {item.color && item.color !== 'none' ? <span style={{ color: item.color }}>●</span> : '○'}
-        </button>
-        <button className="item-del-btn" onClick={() => onDelete(catId, item.id)} title="Delete">×</button>
-      </div>
+      {showDetail && (
+        <div className="item-row-detail">
+          {canEdit ? (
+            <ItemForm
+              initial={item}
+              submitLabel="Update Item"
+              onCancel={() => setShowDetail(false)}
+              onSave={async (updates) => {
+                await onUpdate(catId, item.id, { ...updates, done: updates.status === 'packed' });
+                setShowDetail(false);
+              }}
+            />
+          ) : (
+            <div className="item-detail-panel">
+              <div className="item-detail-readonly">
+                <div><strong>Status:</strong> {ITEM_STATUSES.find(s => s.key === status)?.label || 'Have'}</div>
+                <div><strong>Quantity:</strong> {item.quantity != null ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : '—'}</div>
+                <div><strong>Required:</strong> {item.required ? 'Yes' : 'No'}</div>
+                <div><strong>Notes:</strong> {item.notes || '—'}</div>
+              </div>
+            </div>
+          )}
+
+          {(item.associations || []).length > 0 && (
+            <div className="item-associations-panel">
+              <div className="item-associations-title">Linked itinerary items</div>
+              <div className="item-associations-list">
+                {(item.associations || []).map(assoc => (
+                  <span key={assoc.id} className="item-association-pill">{associationLabel(assoc)}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function CategorySection({ cat, onAddItem, onUpdateItem, onDeleteItem, onDeleteCategory, canEdit }) {
-  const [newItemName, setNewItemName] = useState('');
   const [open, setOpen] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
   const packed = cat.items?.filter(i => i.status === 'packed' || i.done).length || 0;
   const total = cat.items?.length || 0;
   const allPacked = total > 0 && packed === total;
-
-  const addItem = async () => {
-    const n = newItemName.trim();
-    if (!n) return;
-    setNewItemName('');
-    await onAddItem(cat.id, { name: n });
-  };
 
   const markAllPacked = async (e) => {
     e.stopPropagation();
@@ -154,20 +268,24 @@ function CategorySection({ cat, onAddItem, onUpdateItem, onDeleteItem, onDeleteC
       {open && (
         <div className="cat-body">
           {cat.items?.map(item => (
-            <ItemRow key={item.id} item={item} catId={cat.id} onUpdate={onUpdateItem} onDelete={onDeleteItem} />
+            <ItemRow key={item.id} item={item} catId={cat.id} onUpdate={onUpdateItem} onDelete={onDeleteItem} canEdit={canEdit} />
           ))}
 
           {canEdit && (
-            <div className="add-item-row">
-              <input
-                className="add-item-input"
-                value={newItemName}
-                onChange={e => setNewItemName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addItem(); }}
-                placeholder="Add item…"
-              />
-              {newItemName && (
-                <button className="add-item-btn" onClick={addItem}>+</button>
+            <div className="add-item-block">
+              {showAddForm ? (
+                <ItemForm
+                  submitLabel="Add Item"
+                  onCancel={() => setShowAddForm(false)}
+                  onSave={async (itemData) => {
+                    await onAddItem(cat.id, itemData);
+                    setShowAddForm(false);
+                  }}
+                />
+              ) : (
+                <button className="add-entry-btn add-item-advanced-btn" onClick={() => setShowAddForm(true)}>
+                  + Add item
+                </button>
               )}
             </div>
           )}
@@ -183,8 +301,8 @@ export default function ItemsView({ categories, tripId, onAddCategory, onDeleteC
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState('');
   const fileRef = useRef(null);
-  const totalDone = categories.reduce((s, c) => s + (c.items?.filter(i => i.status === 'packed' || i.done).length || 0), 0);
-  const totalItems = categories.reduce((s, c) => s + (c.items?.length || 0), 0);
+  const totalDone = useMemo(() => categories.reduce((s, c) => s + (c.items?.filter(i => i.status === 'packed' || i.done).length || 0), 0), [categories]);
+  const totalItems = useMemo(() => categories.reduce((s, c) => s + (c.items?.length || 0), 0), [categories]);
 
   const addCat = async () => {
     const n = newCatName.trim();
@@ -210,7 +328,6 @@ export default function ItemsView({ categories, tripId, onAddCategory, onDeleteC
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Import failed');
       setImportStatus(`Created ${data.categoriesCreated} lists!`);
-      // Force a page reload of categories by triggering a window event the hook can react to
       window.dispatchEvent(new CustomEvent('items-imported', { detail: data.categories }));
       setTimeout(() => setImportStatus(''), 2000);
     } catch (err) {
@@ -239,7 +356,6 @@ export default function ItemsView({ categories, tripId, onAddCategory, onDeleteC
         )}
       </div>
 
-      {/* Hidden file input for import */}
       <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.ods,.tsv" style={{ display: 'none' }} onChange={handleImportFile} />
       {importStatus && <div className="items-import-status">{importStatus}</div>}
 

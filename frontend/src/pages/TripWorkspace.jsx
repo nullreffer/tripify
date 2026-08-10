@@ -1390,15 +1390,20 @@ export default function TripWorkspace() {
                   <DaysView
                     days={days}
                     stops={stops}
+                    categories={categories}
                     tripId={id}
+                    canEdit={trip?.memberRole !== 'VIEWER'}
                     onAddDay={tripData.addDay}
                     onUpdateDay={tripData.updateDay}
                     onDeleteDay={tripData.deleteDay}
                     onAddEntry={tripData.addEntry}
                     onUpdateEntry={tripData.updateEntry}
                     onDeleteEntry={tripData.deleteEntry}
+                    onReschedule={tripData.rescheduleDays}
                     onAddReservation={tripData.addReservation}
                     onUpdateReservation={tripData.updateReservation}
+                    onAddItemAssociation={tripData.addItemAssociation}
+                    onDeleteItemAssociation={tripData.deleteItemAssociation}
                   />
                 )}
                 {activeSubTab === 'today' && (
