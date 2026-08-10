@@ -109,11 +109,16 @@ export default function Settings() {
             <div className="settings-row">
               <div className="settings-row-label">
                 <span>POI data provider</span>
-                <span className="settings-row-hint">Overpass API (primary) or community mirror — switch if POI/gas pins fail to load</span>
+                <span className="settings-row-hint">Overpass (free, cached) · Mirror (alt Overpass) · HERE (requires HERE_API_KEY) · TomTom (requires TOMTOM_API_KEY)</span>
               </div>
               <ToggleGroup
                 value={settings.poiProvider ?? 'overpass'}
-                options={[{ value: 'overpass', label: 'Overpass' }, { value: 'mirror', label: 'Mirror' }]}
+                options={[
+                  { value: 'overpass', label: 'Overpass' },
+                  { value: 'mirror',   label: 'Mirror' },
+                  { value: 'here',     label: 'HERE' },
+                  { value: 'tomtom',   label: 'TomTom' },
+                ]}
                 onChange={v => update('poiProvider', v)}
               />
             </div>

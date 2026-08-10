@@ -1,4 +1,4 @@
-const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 /**
  * Get a road route between ordered stops.
@@ -9,8 +9,8 @@ export async function getRoute(stops) {
   const coords = stops.map(s => `${s.lng},${s.lat}`).join(';');
   try {
     const res = await fetch(
-      `${OSRM_BASE}/${coords}?overview=full&geometries=geojson&steps=false`,
-      { signal: AbortSignal.timeout(8000) }
+      `${API_BASE}/api/routing/route?coords=${encodeURIComponent(coords)}`,
+      { credentials: 'include', signal: AbortSignal.timeout(10000) }
     );
     if (!res.ok) return null;
     const data = await res.json();

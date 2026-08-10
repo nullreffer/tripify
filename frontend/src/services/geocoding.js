@@ -1,6 +1,5 @@
 import { mergeResults } from './poiUtils.js';
 
-const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // ── Client-side result cache ─────────────────────────────────────────────────
@@ -39,8 +38,8 @@ export async function searchLocations(query) {
   if (!query?.trim()) return [];
   try {
     const res = await fetch(
-      `${NOMINATIM}/search?q=${encodeURIComponent(query)}&format=json&limit=8&addressdetails=1`,
-      { headers: { 'Accept-Language': 'en', 'User-Agent': 'Azitrip/1.0' }, signal: AbortSignal.timeout(6000) }
+      `${API_BASE}/api/places/geocode?q=${encodeURIComponent(query)}&limit=8`,
+      { credentials: 'include', signal: AbortSignal.timeout(6000) }
     );
     if (!res.ok) return [];
     const results = await res.json();
@@ -152,11 +151,12 @@ async function searchOverpass(query, center, radiusMeters) {
   nwr["operator"~"${escaped}",i](${around});
 );
 out center 20;`;
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
+    const res = await fetch(`${API_BASE}/api/places/overpass-search`, {
       method: 'POST',
-      body: ql,
-      headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Azitrip/1.0' },
-      signal: AbortSignal.timeout(5000),
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ query: ql }),
+      signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -193,19 +193,19 @@ async function searchNominatimViewbox(query, bounds) {
   try {
     const params = new URLSearchParams({
       q: query,
-      format: 'json',
       limit: '20',
-      addressdetails: '1',
-      extratags: '1',
     });
     if (bounds) {
       params.set('viewbox', `${bounds.west},${bounds.north},${bounds.east},${bounds.south}`);
       params.set('bounded', '0');
     }
-    const res = await fetch(
-      `${NOMINATIM}/search?${params}`,
-      { headers: { 'Accept-Language': 'en', 'User-Agent': 'Azitrip/1.0' }, signal: AbortSignal.timeout(5000) }
-    );
+    const endpoint = bounds
+      ? `${API_BASE}/api/places/geocode/viewbox?${params}`
+      : `${API_BASE}/api/places/geocode?${params}`;
+    const res = await fetch(endpoint, {
+      credentials: 'include',
+      signal: AbortSignal.timeout(5000),
+    });
     if (!res.ok) return [];
     const results = await res.json();
     return results.map(r => ({
@@ -227,8 +227,8 @@ async function searchNominatimViewbox(query, bounds) {
 export async function reverseGeocode(lat, lng) {
   try {
     const res = await fetch(
-      `${NOMINATIM}/reverse?lat=${lat}&lon=${lng}&format=json`,
-      { headers: { 'Accept-Language': 'en', 'User-Agent': 'Azitrip/1.0' }, signal: AbortSignal.timeout(6000) }
+      `${API_BASE}/api/places/reverse?lat=${lat}&lng=${lng}`,
+      { credentials: 'include', signal: AbortSignal.timeout(6000) }
     );
     if (!res.ok) return null;
     const data = await res.json();
