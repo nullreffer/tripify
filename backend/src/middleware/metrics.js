@@ -17,15 +17,16 @@ const state = {
 };
 
 // Normalise a URL path so dynamic segments (UUIDs, numeric IDs) don't explode cardinality.
-// e.g. /api/trips/abc-123/stops/456 → /api/trips/:tripId/stops/:stopId
+// e.g. /api/trips/abc-123/stops/456 → /api/trips/:id/stops/:id
 function normalisePath(path) {
   return path
     // Strip query string
     .replace(/\?.*$/, '')
     // UUID-like segments
     .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/:id')
-    // cuid / nanoid / other long alphanumeric IDs (12+ chars)
-    .replace(/\/[A-Za-z0-9_-]{12,}/g, '/:id')
+    // cuid / nanoid: 12+ chars; require at least one digit so plain word segments
+    // like /notifications or /administrative are not replaced.
+    .replace(/\/[A-Za-z0-9_-]{12,}/g, (m) => /\d/.test(m) ? '/:id' : m)
     // Pure numeric segments
     .replace(/\/\d+/g, '/:id');
 }
