@@ -6,27 +6,37 @@ const { recordOutgoing } = require('../middleware/metrics');
 const router = express.Router();
 
 // ── Overpass response cache ───────────────────────────────────────────────────
-// Keyed by the raw query string.  Entries expire after POI_CACHE_TTL_MS.
-const POI_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const poiCache = new Map(); // query → { data, expiresAt }
+// Keyed by the raw query string.  Entries expire after POI_CACHE_TTL_MS but are
+// kept as stale entries (up to POI_STALE_TTL_MS) so they can be returned as a
+// fallback when all upstream endpoints are unavailable (e.g. HTTP 429).
+const POI_CACHE_TTL_MS   =  5 * 60 * 1000; // 5 minutes (fresh)
+const POI_STALE_TTL_MS   = 60 * 60 * 1000; // 1 hour (stale-while-revalidate fallback)
+const poiCache = new Map(); // query → { data, expiresAt, staleAt }
 
-// Sweep expired entries every 10 minutes to prevent unbounded growth.
+// Sweep entries that have passed the stale TTL every 10 minutes.
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of poiCache) {
-    if (now > entry.expiresAt) poiCache.delete(key);
+    if (now > entry.staleAt) poiCache.delete(key);
   }
 }, 10 * 60 * 1000);
 
+// Returns { data, stale } where stale=true means the entry has expired but is
+// within the stale window and can be used as a fallback.
 function poiCacheGet(query) {
   const entry = poiCache.get(query);
   if (!entry) return null;
-  if (Date.now() > entry.expiresAt) { poiCache.delete(query); return null; }
-  return entry.data;
+  const now = Date.now();
+  if (now > entry.staleAt) { poiCache.delete(query); return null; }
+  return { data: entry.data, stale: now > entry.expiresAt };
 }
 
 function poiCacheSet(query, data) {
-  poiCache.set(query, { data, expiresAt: Date.now() + POI_CACHE_TTL_MS });
+  poiCache.set(query, {
+    data,
+    expiresAt: Date.now() + POI_CACHE_TTL_MS,
+    staleAt:   Date.now() + POI_STALE_TTL_MS,
+  });
 }
 
 // ── HERE Places helpers ───────────────────────────────────────────────────────
@@ -439,11 +449,11 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'query must include a bounding box' });
   }
 
-  // Serve from cache when available
-  const cached = poiCacheGet(query);
-  if (cached) {
+  // Serve from cache when available (fresh hit)
+  const cacheEntry = poiCacheGet(query);
+  if (cacheEntry && !cacheEntry.stale) {
     res.set('X-Cache', 'HIT');
-    return res.json(cached);
+    return res.json(cacheEntry.data);
   }
 
   const preferredProvider = Object.prototype.hasOwnProperty.call(OVERPASS_ENDPOINTS, provider) ? provider : 'overpass';
@@ -455,6 +465,12 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
       const errBody = await upstream.text().catch(() => '');
       recordOutgoing('overpass', false, durationMs);
       console.error(`[poi] Overpass HTTP ${upstream.status} after ${durationMs}ms:`, errBody.slice(0, 500));
+      // Fall back to stale cache when all endpoints are rate-limited or unavailable
+      if (cacheEntry) {
+        console.warn('[poi] Returning stale cache as fallback');
+        res.set('X-Cache', 'STALE');
+        return res.json(cacheEntry.data);
+      }
       return res.status(upstream.status).json({ error: `Overpass error ${upstream.status}` });
     }
     recordOutgoing('overpass', true, durationMs);
@@ -466,6 +482,12 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
     const durationMs = Date.now() - t0;
     recordOutgoing('overpass', false, durationMs);
     console.error(`[poi] Overpass fetch failed after ${durationMs}ms:`, err.message, err.cause?.message || '');
+    // Fall back to stale cache on network errors too
+    if (cacheEntry) {
+      console.warn('[poi] Returning stale cache as fallback after fetch error');
+      res.set('X-Cache', 'STALE');
+      return res.json(cacheEntry.data);
+    }
     res.status(502).json({ error: 'POI data unavailable' });
   }
 });
