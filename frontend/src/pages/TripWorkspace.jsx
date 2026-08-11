@@ -919,6 +919,12 @@ export default function TripWorkspace() {
         const query = `[out:json][timeout:15];node["amenity"="fuel"](${s},${w},${n},${e});out 200;`;
         try {
           const poiSources = getSettings().poiSources ?? ['overpass'];
+          const hasOverpass = poiSources.includes('overpass') || poiSources.includes('mirror');
+          if (!hasOverpass) {
+            setGasPins([]);
+            setGasStatus('⛽ Gas: no Overpass source enabled');
+            return;
+          }
           const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
           const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
             method: 'POST',
@@ -987,6 +993,12 @@ export default function TripWorkspace() {
       const query = `[out:json][timeout:15];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["natural"="geyser"]["name"](${s},${w},${n},${e});node["natural"="hot_spring"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center ${outLimit};`;
       try {
         const poiSources = getSettings().poiSources ?? ['overpass'];
+        const hasOverpass = poiSources.includes('overpass') || poiSources.includes('mirror');
+        if (!hasOverpass) {
+          setAttractionPins([]);
+          setAttractionStatus('⭐ POI: no Overpass source enabled');
+          return;
+        }
         const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
         const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
           method: 'POST',

@@ -111,19 +111,17 @@ async function tomtomNearbySearch(lat, lng, category, radiusMeters) {
  */
 function mergeMultiSourceResults(resultSets) {
   const SOURCE_PRIORITY = ['osm', 'google', 'here', 'tomtom'];
-  // Flatten all results with their index for stable sort
-  const all = resultSets.flat();
+  // Sort by priority first so higher-priority items are encountered first during dedup
+  const all = resultSets.flat().sort((a, b) => {
+    const ai = SOURCE_PRIORITY.indexOf(a.source);
+    const bi = SOURCE_PRIORITY.indexOf(b.source);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
   const kept = [];
   for (const item of all) {
     const isDupe = kept.some(k => distMeters(item, k) < 60);
     if (!isDupe) kept.push(item);
   }
-  // Sort so higher-priority sources come first (stable)
-  kept.sort((a, b) => {
-    const ai = SOURCE_PRIORITY.indexOf(a.source);
-    const bi = SOURCE_PRIORITY.indexOf(b.source);
-    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-  });
   return kept;
 }
 
