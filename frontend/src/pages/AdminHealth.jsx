@@ -175,6 +175,48 @@ export default function AdminHealth() {
         </div>
       )}
 
+      {/* Service Configuration */}
+      {data.services && (
+        <>
+          <h3 className="admin-section-title">Service Configuration</h3>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>API Key</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['aqicn', 'AQICN (AQI tiles)'],
+                  ['nasaFirms', 'NASA FIRMS (Active Fires)'],
+                  ['tomtom', 'TomTom'],
+                  ['here', 'HERE'],
+                  ['googlePlaces', 'Google Places'],
+                  ['gemini', 'Gemini AI'],
+                ].map(([key, label]) => {
+                  const svc = data.services[key];
+                  if (!svc) return null;
+                  return (
+                    <tr key={key}>
+                      <td style={{ fontWeight: 600 }}>{label}</td>
+                      <td>
+                        <span className="admin-badge" style={svc.configured
+                          ? { background: '#dcfce7', color: '#15803d' }
+                          : { background: '#fee2e2', color: '#b91c1c' }}>
+                          {svc.configured ? 'Configured' : 'Not configured'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       {/* Outgoing API calls */}
       <h3 className="admin-section-title">Outgoing API Calls</h3>
       {outgoingEntries.length === 0 ? (
