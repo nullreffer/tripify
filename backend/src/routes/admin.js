@@ -103,7 +103,15 @@ router.post('/approvals/:userId/approve', async (req, res, next) => {
 
 // GET /api/admin/health — in-memory service health metrics (resets on restart)
 router.get('/health', (_req, res) => {
-  res.json({ version: pkg.version, ...getSnapshot() });
+  const services = {
+    aqicn: { configured: !!process.env.AQICN_TOKEN },
+    nasaFirms: { configured: !!process.env.NASA_FIRMS_MAP_KEY },
+    tomtom: { configured: !!process.env.TOMTOM_API_KEY },
+    here: { configured: !!process.env.HERE_API_KEY },
+    googlePlaces: { configured: !!process.env.GOOGLE_PLACES_API_KEY },
+    gemini: { configured: !!process.env.GEMINI_API_KEY },
+  };
+  res.json({ version: pkg.version, services, ...getSnapshot() });
 });
 
 module.exports = router;
