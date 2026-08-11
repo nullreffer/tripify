@@ -641,7 +641,7 @@ const TripMap = forwardRef(function TripMap(
       {/* AQI legend */}
       {isAqiLayer && (
         <div style={{
-          position: 'absolute', bottom: '140px', left: '10px', zIndex: 1000,
+          position: 'absolute', bottom: '70px', left: '10px', zIndex: 1000,
           background: 'rgba(15,23,42,0.9)', borderRadius: '10px', padding: '8px 12px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.4)', fontSize: '11px', color: '#fff',
           pointerEvents: 'none',
@@ -669,7 +669,7 @@ const TripMap = forwardRef(function TripMap(
       {/* Gas station legend */}
       {isGasLayer && (
         <div style={{
-          position: 'absolute', bottom: '140px', left: '10px', zIndex: 1000,
+          position: 'absolute', bottom: '70px', left: '10px', zIndex: 1000,
           background: 'rgba(15,23,42,0.9)', borderRadius: '10px', padding: '8px 12px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.4)', fontSize: '11px', color: '#fff',
           pointerEvents: 'none',

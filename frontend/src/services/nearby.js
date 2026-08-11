@@ -1,4 +1,4 @@
-import { mergeResults } from './poiUtils.js';
+import { mergeResults, distMeters } from './poiUtils.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -105,23 +105,48 @@ async function tomtomNearbySearch(lat, lng, category, radiusMeters) {
   }
 }
 
-export async function nearbySearch(lat, lng, category, radiusMeters = 5000, provider = 'overpass') {
-  let osmPromise, altPromise;
-
-  if (provider === 'here') {
-    osmPromise = Promise.resolve([]);
-    altPromise = hereNearbySearch(lat, lng, category, radiusMeters);
-  } else if (provider === 'tomtom') {
-    osmPromise = Promise.resolve([]);
-    altPromise = tomtomNearbySearch(lat, lng, category, radiusMeters);
-  } else {
-    // 'overpass' or 'mirror' — use OSM + Google in parallel
-    osmPromise = osmNearbySearch(lat, lng, category, radiusMeters, provider);
-    altPromise = googleNearbySearch(lat, lng, category, radiusMeters);
+/**
+ * Merge results from multiple sources, deduplicating by proximity.
+ * Priority (kept when dupes are found): osm > google > here > tomtom
+ */
+function mergeMultiSourceResults(resultSets) {
+  const SOURCE_PRIORITY = ['osm', 'google', 'here', 'tomtom'];
+  // Flatten all results with their index for stable sort
+  const all = resultSets.flat();
+  const kept = [];
+  for (const item of all) {
+    const isDupe = kept.some(k => distMeters(item, k) < 60);
+    if (!isDupe) kept.push(item);
   }
+  // Sort so higher-priority sources come first (stable)
+  kept.sort((a, b) => {
+    const ai = SOURCE_PRIORITY.indexOf(a.source);
+    const bi = SOURCE_PRIORITY.indexOf(b.source);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+  return kept;
+}
 
-  const [osmResult, altResult] = await Promise.allSettled([osmPromise, altPromise]);
-  const osm = osmResult.status === 'fulfilled' ? osmResult.value : [];
-  const alt = altResult.status === 'fulfilled' ? altResult.value : [];
-  return mergeResults(osm, alt);
+/**
+ * Perform a nearby search using all sources listed in `sources` (array).
+ * Accepts a legacy string value for backward compatibility.
+ */
+export async function nearbySearch(lat, lng, category, radiusMeters = 5000, sources = ['overpass']) {
+  // Normalise: legacy single-string provider → array
+  const sourceList = Array.isArray(sources) ? sources : [sources];
+
+  const promises = sourceList.map(src => {
+    switch (src) {
+      case 'overpass': return osmNearbySearch(lat, lng, category, radiusMeters, 'overpass');
+      case 'mirror':   return osmNearbySearch(lat, lng, category, radiusMeters, 'mirror');
+      case 'google':   return googleNearbySearch(lat, lng, category, radiusMeters);
+      case 'here':     return hereNearbySearch(lat, lng, category, radiusMeters);
+      case 'tomtom':   return tomtomNearbySearch(lat, lng, category, radiusMeters);
+      default:         return Promise.resolve([]);
+    }
+  });
+
+  const settled = await Promise.allSettled(promises);
+  const resultSets = settled.map(r => r.status === 'fulfilled' ? r.value : []);
+  return mergeMultiSourceResults(resultSets);
 }

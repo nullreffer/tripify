@@ -108,19 +108,36 @@ export default function Settings() {
             </div>
             <div className="settings-row">
               <div className="settings-row-label">
-                <span>POI data provider</span>
-                <span className="settings-row-hint">Overpass (free, cached) · Mirror (alt Overpass) · HERE (requires HERE_API_KEY) · TomTom (requires TOMTOM_API_KEY)</span>
+                <span>POI data sources</span>
+                <span className="settings-row-hint">Select one or more sources — results are merged and deduplicated. HERE requires HERE_API_KEY; TomTom requires TOMTOM_API_KEY.</span>
               </div>
-              <ToggleGroup
-                value={settings.poiProvider ?? 'overpass'}
-                options={[
-                  { value: 'overpass', label: 'Overpass' },
-                  { value: 'mirror',   label: 'Mirror' },
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {[
+                  { value: 'overpass', label: 'Overpass (OSM)' },
+                  { value: 'mirror',   label: 'Overpass Mirror' },
                   { value: 'here',     label: 'HERE' },
                   { value: 'tomtom',   label: 'TomTom' },
-                ]}
-                onChange={v => update('poiProvider', v)}
-              />
+                ].map(opt => {
+                  const sources = Array.isArray(settings.poiSources) ? settings.poiSources : ['overpass'];
+                  const checked = sources.includes(opt.value);
+                  return (
+                    <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const next = checked
+                            ? sources.filter(s => s !== opt.value)
+                            : [...sources, opt.value];
+                          // Always keep at least one source selected
+                          if (next.length > 0) update('poiSources', next);
+                        }}
+                      />
+                      {opt.label}
+                    </label>
+                  );
+                })}
+              </div>
             </div>
             <div className="settings-row">
               <div className="settings-row-label">

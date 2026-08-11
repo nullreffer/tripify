@@ -918,12 +918,13 @@ export default function TripWorkspace() {
         setGasStatus('⛽ Gas: fetching…');
         const query = `[out:json][timeout:15];node["amenity"="fuel"](${s},${w},${n},${e});out 200;`;
         try {
-          const poiProvider = getSettings().poiProvider ?? 'overpass';
+          const poiSources = getSettings().poiSources ?? ['overpass'];
+          const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
           const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ query, provider: poiProvider }),
+            body: JSON.stringify({ query, provider: overpassProvider }),
             signal: AbortSignal.timeout(20000),
           });
           if (!res.ok) {
@@ -985,12 +986,13 @@ export default function TripWorkspace() {
       setAttractionStatus('⭐ POI: fetching…');
       const query = `[out:json][timeout:15];(node["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e});node["natural"="peak"]["name"](${s},${w},${n},${e});node["natural"="waterfall"]["name"](${s},${w},${n},${e});node["natural"="geyser"]["name"](${s},${w},${n},${e});node["natural"="hot_spring"]["name"](${s},${w},${n},${e});node["historic"]["name"](${s},${w},${n},${e});node["leisure"="nature_reserve"]["name"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e}););out center ${outLimit};`;
       try {
-        const poiProvider = getSettings().poiProvider ?? 'overpass';
+        const poiSources = getSettings().poiSources ?? ['overpass'];
+        const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
         const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ query, provider: poiProvider }),
+          body: JSON.stringify({ query, provider: overpassProvider }),
           signal: AbortSignal.timeout(25000),
         });
         if (!res.ok) {
