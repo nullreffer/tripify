@@ -145,7 +145,9 @@ export default function AdminHealth() {
               <tr>
                 <th>Method &amp; Path</th>
                 <th>Count</th>
-                <th>Share</th>
+                <th>Avg</th>
+                <th>P50</th>
+                <th>P95</th>
                 <th>Status Breakdown</th>
               </tr>
             </thead>
@@ -154,10 +156,10 @@ export default function AdminHealth() {
                 <tr key={path}>
                   <td style={{ fontFamily: 'monospace', fontSize: '.85rem' }}>{path}</td>
                   <td>{info.count.toLocaleString()}</td>
-                  <td>
-                    {data.requests.total
-                      ? `${((info.count / data.requests.total) * 100).toFixed(1)}%`
-                      : '—'}
+                  <td>{info.avgMs != null ? `${info.avgMs} ms` : '—'}</td>
+                  <td>{info.p50Ms != null ? `${info.p50Ms} ms` : '—'}</td>
+                  <td style={{ color: info.p95Ms != null && info.p95Ms > 1000 ? '#dc2626' : undefined }}>
+                    {info.p95Ms != null ? `${info.p95Ms} ms` : '—'}
                   </td>
                   <td>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
@@ -231,7 +233,9 @@ export default function AdminHealth() {
                 <th>Success</th>
                 <th>Failure</th>
                 <th>Success Rate</th>
-                <th>Avg Latency</th>
+                <th>Avg</th>
+                <th>P50</th>
+                <th>P95</th>
               </tr>
             </thead>
             <tbody>
@@ -255,12 +259,51 @@ export default function AdminHealth() {
                       ) : '—'}
                     </td>
                     <td>{stats.avgMs != null ? `${stats.avgMs} ms` : '—'}</td>
+                    <td>{stats.p50Ms != null ? `${stats.p50Ms} ms` : '—'}</td>
+                    <td style={{ color: stats.p95Ms != null && stats.p95Ms > 3000 ? '#dc2626' : undefined }}>
+                      {stats.p95Ms != null ? `${stats.p95Ms} ms` : '—'}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Frontend performance events */}
+      {data.clientEvents && data.clientEvents.length > 0 && (
+        <>
+          <h3 className="admin-section-title">Frontend Performance (last 50 events)</h3>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Activity</th>
+                  <th>Duration</th>
+                  <th>Meta</th>
+                  <th>Received</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...data.clientEvents].reverse().map((ev, i) => (
+                  <tr key={i}>
+                    <td style={{ fontFamily: 'monospace', fontSize: '.85rem' }}>{ev.activity}</td>
+                    <td style={{ color: ev.durationMs > 3000 ? '#dc2626' : ev.durationMs > 1000 ? '#d97706' : undefined, fontWeight: 600 }}>
+                      {ev.durationMs} ms
+                    </td>
+                    <td style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>
+                      {ev.meta ? JSON.stringify(ev.meta) : '—'}
+                    </td>
+                    <td style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>
+                      {new Date(ev.receivedAt).toLocaleTimeString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );

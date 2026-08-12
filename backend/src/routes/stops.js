@@ -28,12 +28,15 @@ async function resolveAccess(tripId, userId, requireWrite = false) {
 // GET /api/trips/:tripId/stops
 router.get('/', requireAuth, async (req, res, next) => {
   try {
+    const dbStart = Date.now();
     const access = await resolveAccess(req.params.tripId, req.user.id);
     if (!access) return res.status(404).json({ error: 'Trip not found' });
     const stops = await prisma.stop.findMany({
       where: { tripId: req.params.tripId },
       orderBy: { order: 'asc' }
     });
+    const dbMs = Date.now() - dbStart;
+    if (dbMs > 500) console.warn(`[db-slow] GET /api/trips/:id/stops db query ${dbMs}ms (${stops.length} stops)`);
     res.json(stops);
   } catch (err) { next(err); }
 });

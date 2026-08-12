@@ -90,6 +90,7 @@ export function useTrip(tripId) {
   const load = useCallback(async () => {
     setLoading(true);
     setIsOffline(false);
+    const t0 = performance.now();
     try {
       const [tripRes, stopsRes, itemsRes, refsRes, daysRes, resRes] = await Promise.all([
         fetch(`${API}/api/trips/${tripId}`, { credentials: 'include' }),
@@ -119,6 +120,13 @@ export function useTrip(tripId) {
       setReferences(snapshot.references);
       setDays(snapshot.days);
       setReservations(snapshot.reservations);
+      const totalMs = Math.round(performance.now() - t0);
+      console.log(`[perf] trip-load ${totalMs}ms (${snapshot.stops.length} stops)`);
+      fetch(`${API}/api/metrics/client`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ activity: 'trip-load', durationMs: totalMs, meta: { stops: snapshot.stops.length } }]),
+      }).catch(() => {});
     } catch (err) {
       // Network failure — try to serve from cache
       const cached = readCache(tripId);
