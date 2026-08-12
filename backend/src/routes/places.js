@@ -412,6 +412,7 @@ async function fetchOverpassWithFallback(query, preferredProvider) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'Accept': '*/*',
+          'User-Agent': 'Azitrip/1.0',
         },
         body: `data=${encodeURIComponent(query)}`,
         signal: AbortSignal.timeout(20000),
