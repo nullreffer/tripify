@@ -287,7 +287,7 @@ export default function AdminHealth() {
               </thead>
               <tbody>
                 {[...data.clientEvents].reverse().map((ev, i) => (
-                  <tr key={i}>
+                  <tr key={`${ev.activity}-${ev.receivedAt}-${i}`}>
                     <td style={{ fontFamily: 'monospace', fontSize: '.85rem' }}>{ev.activity}</td>
                     <td style={{ color: ev.durationMs > 3000 ? '#dc2626' : ev.durationMs > 1000 ? '#d97706' : undefined, fontWeight: 600 }}>
                       {ev.durationMs} ms

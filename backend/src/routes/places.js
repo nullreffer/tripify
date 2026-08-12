@@ -524,9 +524,10 @@ router.get('/here-nearby', placesRateLimit, requireAuth, async (req, res) => {
       console.error('HERE nearby HTTP error:', response.status, category);
       return res.json([]);
     }
-    recordOutgoing('herePlaces', true, Date.now() - t0);
+    const durationMs = Date.now() - t0;
+    recordOutgoing('herePlaces', true, durationMs);
     const data = await response.json();
-    console.log(`[here] ${category} ${Date.now() - t0}ms → ${(data.items || []).length} results`);
+    console.log(`[here] ${category} ${durationMs}ms → ${(data.items || []).length} results`);
     res.json((data.items || []).map(item => normalizeHerePlace(item, category)).filter(Boolean).slice(0, 20));
   } catch (err) {
     recordOutgoing('herePlaces', false, Date.now() - t0);
@@ -566,9 +567,10 @@ router.get('/tomtom-nearby', placesRateLimit, requireAuth, async (req, res) => {
       console.error('TomTom nearby HTTP error:', response.status, category);
       return res.json([]);
     }
-    recordOutgoing('tomtomPlaces', true, Date.now() - t0);
+    const durationMs = Date.now() - t0;
+    recordOutgoing('tomtomPlaces', true, durationMs);
     const data = await response.json();
-    console.log(`[tomtom] ${category} ${Date.now() - t0}ms → ${(data.results || []).length} results`);
+    console.log(`[tomtom] ${category} ${durationMs}ms → ${(data.results || []).length} results`);
     res.json((data.results || []).map(poi => normalizeTomTomPlace(poi, category)).filter(Boolean).slice(0, 20));
   } catch (err) {
     recordOutgoing('tomtomPlaces', false, Date.now() - t0);

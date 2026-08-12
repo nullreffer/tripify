@@ -1,8 +1,18 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const requireAuth = require('../middleware/requireAuth');
 const { recordClientEvent } = require('../middleware/metrics');
 
 const router = express.Router();
+
+const clientMetricsLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many requests. Please slow down.' },
+});
 
 const ALLOWED_ACTIVITIES = new Set([
   'dashboard-load',
@@ -14,7 +24,7 @@ const ALLOWED_ACTIVITIES = new Set([
 
 // POST /api/metrics/client — receive frontend performance timings
 // Accepts an array of events: [{ activity, durationMs, meta? }, ...]
-router.post('/client', requireAuth, (req, res) => {
+router.post('/client', clientMetricsLimit, requireAuth, (req, res) => {
   const events = Array.isArray(req.body) ? req.body : [req.body];
   for (const ev of events) {
     if (!ev || typeof ev.activity !== 'string' || typeof ev.durationMs !== 'number') continue;
