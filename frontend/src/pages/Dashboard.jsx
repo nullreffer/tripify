@@ -49,12 +49,20 @@ function Dashboard() {
   }, []);
 
   const fetchTrips = async () => {
+    const t0 = performance.now();
     try {
       const res = await fetch(`${API_BASE}/api/trips`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         localStorage.setItem(CACHED_TRIPS_KEY, JSON.stringify(data));
         setTrips(data);
+        const totalMs = Math.round(performance.now() - t0);
+        console.log(`[perf] dashboard-load ${totalMs}ms (${data.length} trips)`);
+        fetch(`${API_BASE}/api/metrics/client`, {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([{ activity: 'dashboard-load', durationMs: totalMs, meta: { trips: data.length } }]),
+        }).catch(() => {});
       }
     } catch {
       // Network error — try cached trips

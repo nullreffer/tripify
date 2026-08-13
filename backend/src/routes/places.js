@@ -415,7 +415,7 @@ async function fetchOverpassWithFallback(query, preferredProvider) {
           'User-Agent': 'Azitrip/1.0',
         },
         body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(12000),
       });
       if (res.ok) return res;
       lastStatus = res.status;
@@ -476,6 +476,7 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
     }
     recordOutgoing('overpass', true, durationMs);
     const data = await upstream.json();
+    console.log(`[poi] Overpass OK after ${durationMs}ms → ${(data.elements || []).length} elements`);
     poiCacheSet(query, data);
     res.set('X-Cache', 'MISS');
     res.json(data);
@@ -523,8 +524,10 @@ router.get('/here-nearby', placesRateLimit, requireAuth, async (req, res) => {
       console.error('HERE nearby HTTP error:', response.status, category);
       return res.json([]);
     }
-    recordOutgoing('herePlaces', true, Date.now() - t0);
+    const durationMs = Date.now() - t0;
+    recordOutgoing('herePlaces', true, durationMs);
     const data = await response.json();
+    console.log(`[here] ${category} ${durationMs}ms → ${(data.items || []).length} results`);
     res.json((data.items || []).map(item => normalizeHerePlace(item, category)).filter(Boolean).slice(0, 20));
   } catch (err) {
     recordOutgoing('herePlaces', false, Date.now() - t0);
@@ -564,8 +567,10 @@ router.get('/tomtom-nearby', placesRateLimit, requireAuth, async (req, res) => {
       console.error('TomTom nearby HTTP error:', response.status, category);
       return res.json([]);
     }
-    recordOutgoing('tomtomPlaces', true, Date.now() - t0);
+    const durationMs = Date.now() - t0;
+    recordOutgoing('tomtomPlaces', true, durationMs);
     const data = await response.json();
+    console.log(`[tomtom] ${category} ${durationMs}ms → ${(data.results || []).length} results`);
     res.json((data.results || []).map(poi => normalizeTomTomPlace(poi, category)).filter(Boolean).slice(0, 20));
   } catch (err) {
     recordOutgoing('tomtomPlaces', false, Date.now() - t0);

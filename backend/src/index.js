@@ -24,6 +24,7 @@ const weatherRoutes = require('./routes/weather');
 const routingRoutes = require('./routes/routing');
 const adminRoutes = require('./routes/admin');
 const { router: notificationRoutes } = require('./routes/notifications');
+const metricsRoutes = require('./routes/metrics');
 const { requestMetrics } = require('./middleware/metrics');
 
 const app = express();
@@ -99,6 +100,7 @@ app.use('/api/weather', weatherRoutes);
 app.use('/api/routing', routingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/metrics', metricsRoutes);
 
 // Global error handler
 app.use((err, _req, res, _next) => {

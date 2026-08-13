@@ -10,10 +10,11 @@ const state = {
   requests: {
     total: 0,
     byStatus: {},
-    byPath: {}, // { 'GET /api/trips': { count, byStatus: {} }, ... }
+    byPath: {}, // { 'GET /api/trips': { count, byStatus: {}, latencies: [] }, ... }
     latencies: [], // rolling window of recent request durations (ms)
   },
   outgoing: {},
+  clientEvents: [], // rolling window of frontend performance events
 };
 
 // Normalise a URL path so dynamic segments (UUIDs, numeric IDs) don't explode cardinality.
@@ -54,11 +55,15 @@ function requestMetrics(req, res, next) {
     }
 
     if (!state.requests.byPath[key]) {
-      state.requests.byPath[key] = { count: 0, byStatus: {} };
+      state.requests.byPath[key] = { count: 0, byStatus: {}, latencies: [] };
     }
     state.requests.byPath[key].count++;
     state.requests.byPath[key].byStatus[code] =
       (state.requests.byPath[key].byStatus[code] || 0) + 1;
+    state.requests.byPath[key].latencies.push(durationMs);
+    if (state.requests.byPath[key].latencies.length > MAX_LATENCY_SAMPLES) {
+      state.requests.byPath[key].latencies.shift();
+    }
   });
   next();
 }
@@ -72,6 +77,13 @@ function recordOutgoing(service, success, durationMs) {
   if (svc.latencies.length > MAX_LATENCY_SAMPLES) svc.latencies.shift();
   if (success) svc.success++;
   else svc.failure++;
+}
+
+// Record a performance event sent from the frontend
+const MAX_CLIENT_EVENTS = 200;
+function recordClientEvent(event) {
+  state.clientEvents.push({ ...event, receivedAt: new Date().toISOString() });
+  if (state.clientEvents.length > MAX_CLIENT_EVENTS) state.clientEvents.shift();
 }
 
 function percentile(sorted, p) {
@@ -100,10 +112,21 @@ function getSnapshot() {
     };
   }
 
-  // Sort paths by descending request count
+  // Sort paths by descending request count; include per-path latency stats
   const byPath = Object.fromEntries(
     Object.entries(state.requests.byPath)
       .sort(([, a], [, b]) => b.count - a.count)
+      .map(([path, info]) => {
+        const sl = [...info.latencies].sort((a, b) => a - b);
+        const avg = sl.length ? Math.round(sl.reduce((s, v) => s + v, 0) / sl.length) : null;
+        return [path, {
+          count: info.count,
+          byStatus: info.byStatus,
+          avgMs: avg,
+          p50Ms: percentile(sl, 0.5),
+          p95Ms: percentile(sl, 0.95),
+        }];
+      })
   );
 
   return {
@@ -117,7 +140,8 @@ function getSnapshot() {
       p95LatencyMs: percentile(sorted, 0.95),
     },
     outgoing,
+    clientEvents: state.clientEvents.slice(-50), // last 50 events
   };
 }
 
-module.exports = { requestMetrics, recordOutgoing, getSnapshot };
+module.exports = { requestMetrics, recordOutgoing, recordClientEvent, getSnapshot };

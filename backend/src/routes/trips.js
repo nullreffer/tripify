@@ -17,6 +17,7 @@ router.get('/', async (req, res, next) => {
       stops: { where: { reached: true }, select: { id: true } }
     };
 
+    const dbStart = Date.now();
     const [owned, membered] = await Promise.all([
       prisma.trip.findMany({
         where: { userId: req.user.id },
@@ -29,6 +30,12 @@ router.get('/', async (req, res, next) => {
         orderBy: { createdAt: 'desc' }
       })
     ]);
+    const dbMs = Date.now() - dbStart;
+    if (dbMs > 500) {
+      console.warn(`[db-slow] GET /api/trips db query ${dbMs}ms (owned=${owned.length}, membered=${membered.length})`);
+    } else {
+      console.log(`[db] GET /api/trips db query ${dbMs}ms (owned=${owned.length}, membered=${membered.length})`);
+    }
 
     const ownedIds = new Set(owned.map(t => t.id));
     const memberTrips = membered
@@ -82,6 +89,7 @@ router.post('/', async (req, res, next) => {
 
 router.get('/:id', async (req, res, next) => {
   try {
+    const dbStart = Date.now();
     const trip = await prisma.trip.findFirst({
       where: {
         id: req.params.id,
@@ -92,6 +100,8 @@ router.get('/:id', async (req, res, next) => {
       },
       include: { members: { include: { user: { select: { id: true, name: true, avatar: true } } } } }
     });
+    const dbMs = Date.now() - dbStart;
+    if (dbMs > 500) console.warn(`[db-slow] GET /api/trips/:id db query ${dbMs}ms`);
     if (!trip) return res.status(404).json({ error: 'Trip not found' });
     const memberRole = trip.userId === req.user.id
       ? 'OWNER'
