@@ -116,6 +116,9 @@ export default function AiView({ tripId, tripName, stops, route, autoPromptReque
 
   useEffect(() => {
     if (!autoPromptRequest?.text) return;
+    if (autoPromptRequest.separator) {
+      setMessages(prev => [...prev, { role: 'separator', content: autoPromptRequest.separator }]);
+    }
     send(autoPromptRequest.text);
     onAutoPromptDone?.();
   }, [autoPromptRequest]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -150,6 +153,13 @@ export default function AiView({ tripId, tripName, stops, route, autoPromptReque
         )}
 
         {messages.map((msg, i) => (
+          msg.role === 'separator' ? (
+            <div key={i} className="ai-separator">
+              <hr className="ai-separator-line" />
+              <span className="ai-separator-label">📍 {msg.content}</span>
+              <hr className="ai-separator-line" />
+            </div>
+          ) : (
           <div key={i} className={`ai-msg ai-msg-${msg.role}`}>
             {msg.role === 'assistant' && <div className="ai-avatar">✨</div>}
             <div className="ai-bubble">
@@ -161,6 +171,7 @@ export default function AiView({ tripId, tripName, stops, route, autoPromptReque
               ))}
             </div>
           </div>
+          )
         ))}
 
         {loading && (

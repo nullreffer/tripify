@@ -401,38 +401,40 @@ async function fetchOverpassWithFallback(query, preferredProvider) {
   const fallback = primary === OVERPASS_ENDPOINTS.overpass
     ? OVERPASS_ENDPOINTS.mirror
     : OVERPASS_ENDPOINTS.overpass;
-  const endpoints = [primary, fallback];
 
-  let lastStatus = null;
-  let lastBody = '';
-  for (const url of endpoints) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': '*/*',
-          'User-Agent': 'Azitrip/1.0',
-        },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(12000),
-      });
-      if (res.ok) return res;
-      lastStatus = res.status;
-      lastBody = await res.text().catch(() => '');
-      if (!OVERPASS_RETRIABLE.has(res.status)) {
-        // Non-retriable — surface the original status rather than trying the mirror
-        const errRes = new Response(lastBody, { status: res.status });
-        return errRes;
-      }
-      console.warn(`[poi] Overpass ${url} → HTTP ${res.status}; trying next endpoint`);
-    } catch (err) {
-      console.warn(`[poi] Overpass ${url} fetch error:`, err.message);
-      if (url === endpoints[endpoints.length - 1]) throw err;
+  // Try one endpoint; resolves with the Response when ok or non-retriable.
+  // Rejects on retriable HTTP errors or network failures so Promise.any can
+  // automatically pick the first healthy endpoint without sequential waiting.
+  const tryFetch = async (url) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': '*/*',
+        'User-Agent': 'Azitrip/1.0',
+      },
+      body: `data=${encodeURIComponent(query)}`,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok || !OVERPASS_RETRIABLE.has(res.status)) {
+      // Success or non-retriable (e.g. 400 Bad Request) — return as-is so
+      // the caller can handle it.
+      return res;
     }
+    // Retriable (429/503/406) — reject so the other endpoint gets a chance.
+    const body = await res.text().catch(() => '');
+    console.warn(`[poi] Overpass ${url} → HTTP ${res.status}; trying parallel endpoint`);
+    throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status, body });
+  };
+
+  try {
+    // Fire both endpoints simultaneously; take the first one that resolves.
+    return await Promise.any([tryFetch(primary), tryFetch(fallback)]);
+  } catch {
+    // AggregateError — all endpoints failed (both retriable or network errors)
+    console.warn('[poi] All Overpass endpoints failed');
+    return new Response('', { status: 502 });
   }
-  // All endpoints failed — surface the last error status
-  return new Response(lastBody, { status: lastStatus || 502 });
 }
 
 router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {

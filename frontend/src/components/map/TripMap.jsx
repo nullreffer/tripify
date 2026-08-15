@@ -415,15 +415,30 @@ function MapTapHandler({ onMapTap }) {
   return null;
 }
 
-function RouteLayer({ route, completedFraction = 0 }) {
+function RouteLayer({ route, completedFraction = 0, userLocation }) {
   if (!route?.geometry) return null;
   const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-  const splitAt = Math.floor(coords.length * Math.max(0, Math.min(1, completedFraction)));
+  let splitAt = Math.floor(coords.length * Math.max(0, Math.min(1, completedFraction)));
+
+  // Extend the completed (green) segment to the user's current GPS position.
+  // We search only forward from the last-reached-stop split so the line never
+  // shrinks even if the GPS signal drifts behind the last completed leg.
+  if (userLocation && splitAt < coords.length) {
+    const [uLat, uLng] = userLocation;
+    let bestIdx = splitAt;
+    let bestDist = Infinity;
+    for (let i = splitAt; i < coords.length; i++) {
+      const d = (coords[i][0] - uLat) ** 2 + (coords[i][1] - uLng) ** 2;
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    splitAt = bestIdx;
+  }
+
   return (
     <>
       <Polyline positions={coords} color="#f97316" weight={5} opacity={0.8} />
       {splitAt > 0 && (
-        <Polyline positions={coords.slice(0, splitAt)} color="#22c55e" weight={5} opacity={0.9} />
+        <Polyline positions={coords.slice(0, splitAt + 1)} color="#22c55e" weight={5} opacity={0.9} />
       )}
     </>
   );
@@ -532,7 +547,7 @@ const TripMap = forwardRef(function TripMap(
             opacity={0.7}
           />
         )}
-        <RouteLayer route={route} completedFraction={completedFraction} />
+        <RouteLayer route={route} completedFraction={completedFraction} userLocation={userLocation} />
         <MapInitialFit stops={stops} userLocation={userLocation} />
         <LongPressHandler onLongPress={onLongPress} />
         <MapTapHandler onMapTap={onMapTap} />

@@ -62,6 +62,8 @@ model TripMember {
   createdAt DateTime @default(now())
 
   @@unique([tripId, userId])
+  @@index([userId])
+  @@index([tripId])
 }
 
 model Invite {
@@ -110,6 +112,8 @@ model Stop {
   dayEntries DayEntry[]
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+
+  @@index([tripId])
 }
 
 model ItemCategory {
@@ -120,6 +124,8 @@ model ItemCategory {
   order     Int        @default(0)
   items     TripItem[]
   createdAt DateTime   @default(now())
+
+  @@index([tripId])
 }
 
 model TripItem {
@@ -148,6 +154,8 @@ model ExternalReference {
   url       String
   refType   String   @default("LINK")
   createdAt DateTime @default(now())
+
+  @@index([tripId])
 }
 
 model AiMessage {
@@ -159,6 +167,8 @@ model AiMessage {
   role      String
   content   String
   createdAt DateTime @default(now())
+
+  @@index([tripId])
 }
 
 // ── Days / Itinerary ──────────────────────────────────────────────────────────
@@ -190,6 +200,8 @@ model TripDay {
   itemAssociations ItemAssociation[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+
+  @@index([tripId])
 }
 
 model DayEntry {
@@ -212,6 +224,8 @@ model DayEntry {
   metadata         Json?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+
+  @@index([dayId])
 }
 
 model ItemAssociation {
