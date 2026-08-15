@@ -172,6 +172,7 @@ export default function TripWorkspace() {
   const [attractionPins, setAttractionPins] = useState([]);
   const [attractionStatus, setAttractionStatus] = useState(null); // debug chip text
   const [selectedAttraction, setSelectedAttraction] = useState(null);
+  const [attractionClusterSheet, setAttractionClusterSheet] = useState(null); // array of pins in tapped cluster
   const attractionDebounce = useRef(null);
   const mapLayerRef = useRef(mapLayer);
   mapLayerRef.current = mapLayer;
@@ -884,7 +885,7 @@ export default function TripWorkspace() {
     }
   }, []);
 
-  const ATTRACTIONS_TOP_N = 20;
+  const ATTRACTIONS_TOP_N = settings.poiLimit ?? 10;
 
   // Clear POI pins whenever the user switches away from a layer that shows them
   useEffect(() => {
@@ -1072,29 +1073,46 @@ export default function TripWorkspace() {
 
         if (hasOverpass) {
           const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
+          const poiUrl = `${import.meta.env.VITE_API_URL || ''}/api/places/poi`;
+          const mapElements = (data) => {
+            const elements = (data.elements || []).filter(el => el.tags?.name);
+            elements.sort((a, b) => attractionScore(b) - attractionScore(a));
+            return elements.map(el => ({
+              id: `${el.type}-${el.id}`,
+              name: el.tags['name:en'] || el.tags.name,
+              lat: el.lat ?? el.center?.lat,
+              lng: el.lon ?? el.center?.lon,
+              wikipedia: el.tags.wikipedia,
+              wikidata: el.tags.wikidata,
+              tags: el.tags,
+              source: 'osm',
+            })).filter(p => p.lat != null && p.lng != null);
+          };
           fetches.push(
-            fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ query, provider: overpassProvider }),
-              signal: AbortSignal.timeout(10000),
-            }).then(async res => {
-              if (!res.ok) return [];
-              const data = await res.json();
-              const elements = (data.elements || []).filter(el => el.tags?.name);
-              elements.sort((a, b) => attractionScore(b) - attractionScore(a));
-              return elements.map(el => ({
-                id: `${el.type}-${el.id}`,
-                name: el.tags['name:en'] || el.tags.name,
-                lat: el.lat ?? el.center?.lat,
-                lng: el.lon ?? el.center?.lon,
-                wikipedia: el.tags.wikipedia,
-                wikidata: el.tags.wikidata,
-                tags: el.tags,
-                source: 'osm',
-              })).filter(p => p.lat != null && p.lng != null);
-            }).catch(() => [])
+            (async () => {
+              let res = await fetch(poiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ query, provider: overpassProvider }),
+                signal: AbortSignal.timeout(10000),
+              });
+              if (!res.ok) {
+                if (res.status === 400) {
+                  // Complex query rejected — retry with a simpler fallback query
+                  const simpleQuery = `[out:json][timeout:10];(node["tourism"="attraction"](${s},${w},${n},${e});way["tourism"="attraction"](${s},${w},${n},${e});node["tourism"="viewpoint"](${s},${w},${n},${e}););out center ${outLimit};`;
+                  res = await fetch(poiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ query: simpleQuery, provider: overpassProvider }),
+                    signal: AbortSignal.timeout(10000),
+                  });
+                }
+                if (!res.ok) return [];
+              }
+              return mapElements(await res.json());
+            })().catch(() => [])
           );
           usedSources.push('OSM');
         }
@@ -1347,6 +1365,7 @@ export default function TripWorkspace() {
             onFirePinClick={pin => setMapFireModal(pin)}
             attractionPins={attractionPins}
             onAttractionPinClick={pin => setSelectedAttraction(pin)}
+            onAttractionClusterClick={pins => setAttractionClusterSheet(pins)}
             attractionStatus={attractionStatus}
             gasPins={gasPins}
             onGasPinClick={pin => setSelectedGasPin(pin)}
@@ -1602,7 +1621,7 @@ export default function TripWorkspace() {
             <div className="ws-offline-status">Loading air quality data…</div>
           )}
           {mapLayer === 'aqi' && !aqiLoading && fireData.length > 0 && (
-            <div className="ws-fire-filters">
+            <div className="ws-fire-filters" style={nextStopVisible ? { bottom: '230px' } : undefined}>
               <div className="ws-fire-filter-row">
                 <span className="ws-fire-filter-label">🔥 Intensity:</span>
                 {[
@@ -2082,8 +2101,38 @@ export default function TripWorkspace() {
               <button className="sheet-close" onClick={() => setSelectedAttraction(null)}>✕</button>
             </div>
             <div className="sheet-body">
+              {/* Image */}
+              {(() => {
+                const commons = selectedAttraction.tags?.wikimedia_commons;
+                const imgTag = selectedAttraction.tags?.image;
+                if (commons) {
+                  const filename = encodeURIComponent(commons.replace(/^File:/i, ''));
+                  return (
+                    <img
+                      src={`https://commons.wikimedia.org/wiki/Special:FilePath/${filename}?width=400`}
+                      alt={selectedAttraction.name}
+                      style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '8px', marginBottom: '10px' }}
+                      onError={e => { e.target.style.display = 'none'; }}
+                    />
+                  );
+                }
+                if (imgTag && imgTag.startsWith('http')) {
+                  return (
+                    <img
+                      src={imgTag}
+                      alt={selectedAttraction.name}
+                      style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '8px', marginBottom: '10px' }}
+                      onError={e => { e.target.style.display = 'none'; }}
+                      referrerPolicy="no-referrer"
+                    />
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Type / category */}
               {selectedAttraction.tags?.tourism && (
-                <div className="sheet-detail-row">🏷 {selectedAttraction.tags.tourism}</div>
+                <div className="sheet-detail-row">🏷 Tourism: {selectedAttraction.tags.tourism}</div>
               )}
               {selectedAttraction.tags?.historic && (
                 <div className="sheet-detail-row">🏛 Historic: {selectedAttraction.tags.historic}</div>
@@ -2091,6 +2140,50 @@ export default function TripWorkspace() {
               {selectedAttraction.tags?.natural && (
                 <div className="sheet-detail-row">🌿 Natural: {selectedAttraction.tags.natural}</div>
               )}
+              {selectedAttraction.tags?.leisure && (
+                <div className="sheet-detail-row">🎯 Leisure: {selectedAttraction.tags.leisure}</div>
+              )}
+              {selectedAttraction.tags?.amenity && (
+                <div className="sheet-detail-row">🏢 Amenity: {selectedAttraction.tags.amenity}</div>
+              )}
+              {selectedAttraction.tags?.shop && (
+                <div className="sheet-detail-row">🛍 Shop: {selectedAttraction.tags.shop}</div>
+              )}
+
+              {/* Description */}
+              {selectedAttraction.tags?.description && (
+                <div className="sheet-detail-row" style={{ fontStyle: 'italic' }}>
+                  ℹ️ {selectedAttraction.tags.description}
+                </div>
+              )}
+
+              {/* Hours */}
+              {selectedAttraction.tags?.opening_hours && (
+                <div className="sheet-detail-row">⏰ {selectedAttraction.tags.opening_hours}</div>
+              )}
+
+              {/* Fee */}
+              {selectedAttraction.tags?.fee && (
+                <div className="sheet-detail-row">💵 Fee: {selectedAttraction.tags.fee}{selectedAttraction.tags?.fee_amount ? ` (${selectedAttraction.tags.fee_amount})` : ''}</div>
+              )}
+
+              {/* Contact */}
+              {(selectedAttraction.tags?.phone || selectedAttraction.tags?.['contact:phone']) && (
+                <div className="sheet-detail-row">
+                  📞 <a href={`tel:${selectedAttraction.tags.phone || selectedAttraction.tags['contact:phone']}`}>
+                    {selectedAttraction.tags.phone || selectedAttraction.tags['contact:phone']}
+                  </a>
+                </div>
+              )}
+              {(selectedAttraction.tags?.website || selectedAttraction.tags?.['contact:website']) && (
+                <div className="sheet-detail-row">
+                  🌐 <a href={selectedAttraction.tags.website || selectedAttraction.tags['contact:website']} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>
+                    Website
+                  </a>
+                </div>
+              )}
+
+              {/* Wikipedia */}
               {selectedAttraction.wikipedia && (() => {
                 const [lang, ...rest] = selectedAttraction.wikipedia.split(':');
                 const wikiLang = rest.length ? lang : 'en';
@@ -2107,9 +2200,17 @@ export default function TripWorkspace() {
                   </div>
                 );
               })()}
-              <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
-                📍 {selectedAttraction.lat.toFixed(5)}, {selectedAttraction.lng.toFixed(5)}
+
+              {/* Source + coordinates */}
+              <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <span>📍 {selectedAttraction.lat.toFixed(5)}, {selectedAttraction.lng.toFixed(5)}</span>
+                {selectedAttraction.source && (
+                  <span style={{ background: 'var(--border)', padding: '1px 6px', borderRadius: '99px' }}>
+                    {selectedAttraction.source === 'osm' ? 'OpenStreetMap' : selectedAttraction.source.toUpperCase()}
+                  </span>
+                )}
               </div>
+
               <div style={{ marginTop: 12 }}>
                 <button
                   className="btn-primary btn-sm"
@@ -2170,6 +2271,43 @@ export default function TripWorkspace() {
                   + Add as stop
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Attraction cluster list sheet ── */}
+      {attractionClusterSheet && (
+        <div className="sheet-overlay" onClick={() => setAttractionClusterSheet(null)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-header">
+              <span className="sheet-title">⭐ {attractionClusterSheet.length} Nearby POIs</span>
+              <button className="sheet-close" onClick={() => setAttractionClusterSheet(null)}>✕</button>
+            </div>
+            <div className="sheet-body" style={{ padding: 0 }}>
+              {attractionClusterSheet.map(pin => (
+                <button
+                  key={pin.id}
+                  onClick={() => { setAttractionClusterSheet(null); setSelectedAttraction(pin); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    width: '100%', textAlign: 'left', padding: '10px 16px',
+                    background: 'none', border: 'none', borderBottom: '1px solid var(--border)',
+                    cursor: 'pointer', color: 'inherit',
+                  }}
+                >
+                  <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>⭐</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pin.name}</div>
+                    {(pin.tags?.tourism || pin.tags?.historic || pin.tags?.natural) && (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        {pin.tags.tourism || pin.tags.historic || pin.tags.natural}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>›</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
