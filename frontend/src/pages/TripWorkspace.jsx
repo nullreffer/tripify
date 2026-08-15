@@ -696,7 +696,7 @@ export default function TripWorkspace() {
   }, [tripData, routeStops, savedStops]);
 
   const nextStop = routeStops.find(s => !s.reached);
-  const nextStopVisible = activeTab === 'map' && !!nextStop && !mapSearchMode && ['normal', 'satellite'].includes(mapLayer);
+  const nextStopVisible = activeTab === 'map' && !!nextStop && !mapSearchMode;
   const mapOverlayBottom = nextStopVisible
     ? MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP
     : MAP_CONTROLS_BOTTOM;
@@ -1640,7 +1640,7 @@ export default function TripWorkspace() {
           )}
           {offlineStatus && <div className="ws-offline-status">{offlineStatus}</div>}
 
-          {/* ── Next stop strip (map tab, normal/satellite layer only) ── */}
+          {/* ── Next stop strip (map tab, all layers) ── */}
           {nextStopVisible && (
             <div className="ws-next-strip">
               <div className="ws-next-info">

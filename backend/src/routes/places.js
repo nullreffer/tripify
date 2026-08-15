@@ -499,7 +499,7 @@ router.post('/poi', overpassRateLimit, requireAuth, async (req, res) => {
 // GET /api/places/here-nearby?lat=&lng=&category=&radius=
 // Proxies a HERE Discover search so the HERE_API_KEY stays server-side.
 router.get('/here-nearby', placesRateLimit, requireAuth, async (req, res) => {
-  const apiKey = process.env.HERE_API_KEY;
+  const apiKey = (process.env.HERE_API_KEY || '').trim();
   if (!apiKey) {
     console.warn('HERE nearby skipped: HERE_API_KEY is not configured');
     return res.json([]);
@@ -510,17 +510,12 @@ router.get('/here-nearby', placesRateLimit, requireAuth, async (req, res) => {
   if (!q) return res.json([]);
   const t0 = Date.now();
   try {
-    const params = new URLSearchParams({
-      at: `${lat},${lng}`,
-      q,
-      limit: '20',
-      in: `circle:${lat},${lng};r=${radius}`,
-      apiKey,
-    });
-    const response = await fetch(
-      `https://discover.search.hereapi.com/v1/discover?${params}`,
-      { signal: AbortSignal.timeout(10000) }
-    );
+    // Build the URL manually so the structural characters in the `in` parameter
+    // value (colon, comma, semicolon) are NOT percent-encoded by URLSearchParams,
+    // which the HERE Discover API requires in order to parse the geometry correctly.
+    const baseParams = new URLSearchParams({ q, limit: '20', apiKey });
+    const url = `https://discover.search.hereapi.com/v1/discover?${baseParams}&in=circle:${lat},${lng};r=${radius}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!response.ok) {
       recordOutgoing('herePlaces', false, Date.now() - t0);
       console.error('HERE nearby HTTP error:', response.status, category);
@@ -541,7 +536,7 @@ router.get('/here-nearby', placesRateLimit, requireAuth, async (req, res) => {
 // GET /api/places/tomtom-nearby?lat=&lng=&category=&radius=
 // Proxies a TomTom Nearby Search so the TOMTOM_API_KEY stays server-side.
 router.get('/tomtom-nearby', placesRateLimit, requireAuth, async (req, res) => {
-  const apiKey = process.env.TOMTOM_API_KEY;
+  const apiKey = (process.env.TOMTOM_API_KEY || '').trim();
   if (!apiKey) {
     console.warn('TomTom nearby skipped: TOMTOM_API_KEY is not configured');
     return res.json([]);
@@ -562,7 +557,10 @@ router.get('/tomtom-nearby', placesRateLimit, requireAuth, async (req, res) => {
     });
     const response = await fetch(
       `https://api.tomtom.com/search/2/nearbySearch/.json?${params}`,
-      { signal: AbortSignal.timeout(10000) }
+      {
+        signal: AbortSignal.timeout(10000),
+        headers: { Authorization: `apiKey ${apiKey}` },
+      }
     );
     if (!response.ok) {
       recordOutgoing('tomtomPlaces', false, Date.now() - t0);
