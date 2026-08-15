@@ -9,6 +9,7 @@ export const DEFAULTS = {
   pinTapZoom: 15,             // zoom level when tapping a pin (10–18)
   offlineRadiusMi: 5,         // radius in miles for offline tile download
   searchRadiusMi: 100,        // radius in miles for map area search
+  poiLimit: 10,               // max number of POI pins shown on the map (0–20)
   fuelEfficiencyMpg: 25,      // vehicle fuel efficiency in MPG (imperial) or L/100km (metric)
   fuelPricePerGallon: null,   // fuel price per gallon (imperial) or per liter (metric); null = not set
 };

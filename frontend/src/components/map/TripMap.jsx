@@ -454,13 +454,15 @@ const TripMap = forwardRef(function TripMap(
     aqiOverlayRadiusMeters = AQI_OVERLAY_RADIUS_METERS_DEFAULT,
     aqiStatus = null,
     firePins = [], onFirePinClick,
-    attractionPins = [], onAttractionPinClick, onBoundsChange,
+    attractionPins = [], onAttractionPinClick, onAttractionClusterClick, onBoundsChange,
     attractionStatus = null,
     gasPins = [], onGasPinClick,
     gasStatus = null,
     mapTileProvider = 'stadia' },
   mapRef
 ) {
+  const attractionPinsRef = useRef(attractionPins);
+  attractionPinsRef.current = attractionPins;
   const nextStop = stops.find(s => !s.reached);
   const groupedStops = useMemo(() => {
     const groups = new Map();
@@ -632,15 +634,47 @@ const TripMap = forwardRef(function TripMap(
           />
         ))}
 
-        {/* Attraction / POI pins */}
-        {attractionPins.map(pin => (
-          <Marker
-            key={`attraction-${pin.id}`}
-            position={[pin.lat, pin.lng]}
-            icon={makeAttractionIcon(pin.name)}
-            eventHandlers={onAttractionPinClick ? { click: () => onAttractionPinClick(pin) } : {}}
-          />
-        ))}
+        {/* Attraction / POI pins — clustered */}
+        <MarkerClusterGroup
+          chunkedLoading
+          maxClusterRadius={50}
+          spiderfyOnMaxZoom
+          showCoverageOnHover={false}
+          onClick={onAttractionClusterClick ? (e) => {
+            const childMarkers = e.layer.getAllChildMarkers?.() || [];
+            const clusterPins = childMarkers.flatMap(m => {
+              const ll = m.getLatLng();
+              const pin = attractionPinsRef.current.find(p =>
+                Math.abs(p.lat - ll.lat) < 0.00001 && Math.abs(p.lng - ll.lng) < 0.00001
+              );
+              return pin ? [pin] : [];
+            });
+            if (clusterPins.length > 0) onAttractionClusterClick(clusterPins);
+          } : undefined}
+          iconCreateFunction={cluster => {
+            const count = cluster.getChildCount();
+            return L.divIcon({
+              html: `<div style="
+                width:36px;height:36px;border-radius:50%;
+                background:#7c3aed;color:#fff;font-weight:700;font-size:13px;
+                display:flex;align-items:center;justify-content:center;
+                border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);
+              ">⭐${count}</div>`,
+              className: '',
+              iconSize: [36, 36],
+              iconAnchor: [18, 36],
+            });
+          }}
+        >
+          {attractionPins.map(pin => (
+            <Marker
+              key={`attraction-${pin.id}`}
+              position={[pin.lat, pin.lng]}
+              icon={makeAttractionIcon(pin.name)}
+              eventHandlers={onAttractionPinClick ? { click: () => onAttractionPinClick(pin) } : {}}
+            />
+          ))}
+        </MarkerClusterGroup>
 
         {/* Gas station pins (shown on gas layer) */}
         {isGasLayer && gasPins.map(pin => (

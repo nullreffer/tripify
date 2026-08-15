@@ -173,6 +173,23 @@ export default function Settings() {
                 style={{ width: '120px' }}
               />
             </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>POI pins to show</span>
+                <span className="settings-row-hint">
+                  Maximum number of attraction pins shown on the map. Set to 0 to hide POI pins. Currently: {settings.poiLimit ?? 10}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={20}
+                step={1}
+                value={settings.poiLimit ?? 10}
+                onChange={e => update('poiLimit', Number(e.target.value))}
+                style={{ width: '120px' }}
+              />
+            </div>
           </div>
 
           <div className="settings-divider" />
