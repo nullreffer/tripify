@@ -4,6 +4,7 @@ import { useTrip } from '../hooks/useTrip.js';
 import { getRoute, formatDistance, formatDuration } from '../services/routing.js';
 import { getSettings, useSettingsListener } from '../services/settings.js';
 import { searchNearby } from '../services/geocoding.js';
+import { nearbySearch } from '../services/nearby.js';
 import { getWeather, buildCurrentWeather, buildScheduledDayWeather } from '../services/weather.js';
 import { getAqiStatus, getAqiForStop, aqiMeta, getActiveFires } from '../services/aqi.js';
 import TripMap from '../components/map/TripMap.jsx';
@@ -98,6 +99,25 @@ function generateAqiGrid(stops) {
     }
   }
   return { points, radiusMeters };
+}
+
+// ── Recent map-search helpers (persisted to localStorage) ────────────────────
+const RECENT_SEARCH_PINS_KEY = 'azitrip-recent-search-pins';
+const RECENT_SEARCH_TERMS_KEY = 'azitrip-recent-search-terms';
+function readRecentSearchPins() {
+  try { return JSON.parse(localStorage.getItem(RECENT_SEARCH_PINS_KEY) || '[]'); } catch { return []; }
+}
+function addRecentSearchPin(pin) {
+  const prev = readRecentSearchPins().filter(p => p.id !== pin.id);
+  localStorage.setItem(RECENT_SEARCH_PINS_KEY, JSON.stringify([pin, ...prev].slice(0, 10)));
+}
+function readRecentSearchTerms() {
+  try { return JSON.parse(localStorage.getItem(RECENT_SEARCH_TERMS_KEY) || '[]'); } catch { return []; }
+}
+function addRecentSearchTerm(term) {
+  if (!term?.trim() || term.trim().length < 2) return;
+  const prev = readRecentSearchTerms().filter(t => t !== term.trim());
+  localStorage.setItem(RECENT_SEARCH_TERMS_KEY, JSON.stringify([term.trim(), ...prev].slice(0, 10)));
 }
 
 export default function TripWorkspace() {
@@ -466,6 +486,7 @@ export default function TripWorkspace() {
       });
       setMapSearchResults(results);
       mapRef.current?.ensureSearchResultVisible(results);
+      if (results.length > 0) addRecentSearchTerm(val);
       setMapSearching(false);
     }, 500);
   }, []);
@@ -675,7 +696,8 @@ export default function TripWorkspace() {
   }, [tripData, routeStops, savedStops]);
 
   const nextStop = routeStops.find(s => !s.reached);
-  const mapOverlayBottom = activeTab === 'map' && nextStop
+  const nextStopVisible = activeTab === 'map' && !!nextStop && !mapSearchMode && ['normal', 'satellite'].includes(mapLayer);
+  const mapOverlayBottom = nextStopVisible
     ? MAP_CONTROLS_BOTTOM_WITH_NEXT_STOP
     : MAP_CONTROLS_BOTTOM;
 
@@ -920,36 +942,72 @@ export default function TripWorkspace() {
         try {
           const poiSources = getSettings().poiSources ?? ['overpass'];
           const hasOverpass = poiSources.includes('overpass') || poiSources.includes('mirror');
-          if (!hasOverpass) {
+          const altSources = poiSources.filter(src => ['here', 'tomtom'].includes(src));
+
+          if (!hasOverpass && !altSources.length) {
             setGasPins([]);
-            setGasStatus('⛽ Gas: no Overpass source enabled');
+            setGasStatus('⛽ Gas: no sources enabled');
             return;
           }
-          const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
-          const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ query, provider: overpassProvider }),
-            signal: AbortSignal.timeout(20000),
-          });
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            console.warn('[gas] POI proxy error:', res.status, errData.error || '');
-            setGasStatus(`⛽ Gas: HTTP ${res.status}`);
-            setGasPins([]);
-            return;
+
+          // Compute viewport center + radius for TomTom/HERE calls
+          const centerLat = (parseFloat(n) + parseFloat(s)) / 2;
+          const centerLng = (parseFloat(e) + parseFloat(w)) / 2;
+          const latMeters = Math.abs(parseFloat(n) - parseFloat(s)) * 111320 / 2;
+          const lngMeters = Math.abs(parseFloat(e) - parseFloat(w)) * 111320
+            * Math.max(0.1, Math.cos(centerLat * Math.PI / 180)) / 2;
+          const radiusMeters = Math.max(5000, Math.min(50000, Math.max(latMeters, lngMeters)));
+
+          const fetches = [];
+          const usedSources = [];
+
+          if (hasOverpass) {
+            const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
+            fetches.push(
+              fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ query, provider: overpassProvider }),
+                signal: AbortSignal.timeout(10000),
+              }).then(async res => {
+                if (!res.ok) return [];
+                const data = await res.json();
+                return (data.elements || []).map(el => ({
+                  id: `gas-${el.type}-${el.id}`,
+                  name: el.tags?.name || el.tags?.brand || '',
+                  lat: el.lat ?? el.center?.lat,
+                  lng: el.lon ?? el.center?.lon,
+                  tags: el.tags,
+                  source: 'osm',
+                })).filter(p => p.lat != null && p.lng != null);
+              }).catch(() => [])
+            );
+            usedSources.push('OSM');
           }
-          const data = await res.json();
-          const pins = (data.elements || []).map(el => ({
-            id: `gas-${el.type}-${el.id}`,
-            name: el.tags?.name || el.tags?.brand || '',
-            lat: el.lat ?? el.center?.lat,
-            lng: el.lon ?? el.center?.lon,
-            tags: el.tags,
-          })).filter(p => p.lat != null && p.lng != null);
+
+          if (altSources.length) {
+            fetches.push(
+              nearbySearch(centerLat, centerLng, 'gas', radiusMeters, altSources)
+                .catch(() => [])
+            );
+            altSources.forEach(src => usedSources.push(src === 'here' ? 'HERE' : 'TomTom'));
+          }
+
+          const resultSets = await Promise.all(fetches);
+          const allPins = resultSets.flat().filter(p => p.lat != null && p.lng != null);
+
+          // O(n) deduplication: bucket coordinates to ~55m grid, keep first seen
+          const seenBuckets = new Set();
+          const pins = [];
+          for (const pin of allPins) {
+            const bucket = `${Math.round(pin.lat / 0.0005)},${Math.round(pin.lng / 0.0005)}`;
+            if (!seenBuckets.has(bucket)) { seenBuckets.add(bucket); pins.push(pin); }
+          }
+
+          const srcStr = usedSources.length > 1 ? ` (${[...new Set(usedSources)].join(', ')})` : '';
           setGasPins(pins);
-          setGasStatus(`⛽ ${pins.length} station${pins.length !== 1 ? 's' : ''}`);
+          setGasStatus(`⛽ ${pins.length} station${pins.length !== 1 ? 's' : ''}${srcStr}`);
           try { sessionStorage.setItem(cacheKey, JSON.stringify(pins)); } catch { /* storage full */ }
         } catch (err) {
           console.warn('[gas] fetch failed:', err.message);
@@ -994,39 +1052,75 @@ export default function TripWorkspace() {
       try {
         const poiSources = getSettings().poiSources ?? ['overpass'];
         const hasOverpass = poiSources.includes('overpass') || poiSources.includes('mirror');
-        if (!hasOverpass) {
+        const altSources = poiSources.filter(src => ['here', 'tomtom'].includes(src));
+
+        if (!hasOverpass && !altSources.length) {
           setAttractionPins([]);
-          setAttractionStatus('⭐ POI: no Overpass source enabled');
+          setAttractionStatus('⭐ POI: no sources enabled');
           return;
         }
-        const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
-        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ query, provider: overpassProvider }),
-          signal: AbortSignal.timeout(25000),
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          console.warn(`[attractions] POI proxy error ${res.status}:`, errData.error || '');
-          setAttractionStatus(`⭐ POI: HTTP ${res.status}`);
-          return;
+
+        const centerLat = (parseFloat(n) + parseFloat(s)) / 2;
+        const centerLng = (parseFloat(e) + parseFloat(w)) / 2;
+        const latMeters = Math.abs(parseFloat(n) - parseFloat(s)) * 111320 / 2;
+        const lngMeters = Math.abs(parseFloat(e) - parseFloat(w)) * 111320
+          * Math.max(0.1, Math.cos(centerLat * Math.PI / 180)) / 2;
+        const radiusMeters = Math.max(5000, Math.min(100000, Math.max(latMeters, lngMeters)));
+
+        const fetches = [];
+        const usedSources = [];
+
+        if (hasOverpass) {
+          const overpassProvider = poiSources.includes('mirror') ? 'mirror' : 'overpass';
+          fetches.push(
+            fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ query, provider: overpassProvider }),
+              signal: AbortSignal.timeout(10000),
+            }).then(async res => {
+              if (!res.ok) return [];
+              const data = await res.json();
+              const elements = (data.elements || []).filter(el => el.tags?.name);
+              elements.sort((a, b) => attractionScore(b) - attractionScore(a));
+              return elements.map(el => ({
+                id: `${el.type}-${el.id}`,
+                name: el.tags['name:en'] || el.tags.name,
+                lat: el.lat ?? el.center?.lat,
+                lng: el.lon ?? el.center?.lon,
+                wikipedia: el.tags.wikipedia,
+                wikidata: el.tags.wikidata,
+                tags: el.tags,
+                source: 'osm',
+              })).filter(p => p.lat != null && p.lng != null);
+            }).catch(() => [])
+          );
+          usedSources.push('OSM');
         }
-        const data = await res.json();
-        const elements = (data.elements || []).filter(el => el.tags?.name);
-        elements.sort((a, b) => attractionScore(b) - attractionScore(a));
-        const top = elements.slice(0, ATTRACTIONS_TOP_N).map(el => ({
-          id: `${el.type}-${el.id}`,
-          name: el.tags['name:en'] || el.tags.name,
-          lat: el.lat ?? el.center?.lat,
-          lng: el.lon ?? el.center?.lon,
-          wikipedia: el.tags.wikipedia,
-          wikidata: el.tags.wikidata,
-          tags: el.tags,
-        })).filter(p => p.lat != null && p.lng != null);
+
+        if (altSources.length) {
+          fetches.push(
+            nearbySearch(centerLat, centerLng, 'attraction', radiusMeters, altSources)
+              .catch(() => [])
+          );
+          altSources.forEach(src => usedSources.push(src === 'here' ? 'HERE' : 'TomTom'));
+        }
+
+        const resultSets = await Promise.all(fetches);
+        const allPins = resultSets.flat().filter(p => p.lat != null && p.lng != null);
+
+        // O(n) dedup: bucket to ~33m grid, OSM pins are listed first so they win
+        const seenBuckets = new Set();
+        const merged = [];
+        for (const pin of allPins) {
+          const bucket = `${Math.round(pin.lat / 0.0003)},${Math.round(pin.lng / 0.0003)}`;
+          if (!seenBuckets.has(bucket)) { seenBuckets.add(bucket); merged.push(pin); }
+        }
+        const top = merged.slice(0, ATTRACTIONS_TOP_N);
+        const srcStr = usedSources.length > 1 ? ` (${[...new Set(usedSources)].join(', ')})` : '';
         setAttractionPins(top);
-        setAttractionStatus(`⭐ ${top.length} POI`);
+        setAttractionStatus(`⭐ ${top.length} POI${srcStr}`);
         try { sessionStorage.setItem(cacheKey, JSON.stringify(top)); } catch { /* storage full */ }
       } catch (err) {
         console.warn(`[attractions] POI fetch failed (zoom=${zoom}, bounds=${s},${w},${n},${e}):`, err.message);
@@ -1172,6 +1266,7 @@ export default function TripWorkspace() {
     setAiPromptRequest({
       id: Date.now(),
       text: `What are places to visit and things to do around ${stop.name}${stop.address ? ` near ${stop.address}` : ''}?`,
+      separator: `What's around ${stop.name}?`,
     });
   }, []);
 
@@ -1223,7 +1318,7 @@ export default function TripWorkspace() {
             }
             darkMode={darkMode}
             searchPins={mapSearchResults}
-            onSearchPinSelect={pin => setSelectedSearchPin(pin)}
+            onSearchPinSelect={pin => { setSelectedSearchPin(pin); if (pin) addRecentSearchPin(pin); }}
             searchSelectedId={selectedSearchPin?.id}
             mapLayer={mapLayer}
             weatherPins={weatherPins}
@@ -1391,6 +1486,65 @@ export default function TripWorkspace() {
             </div>
           )}
 
+          {/* ── Search autofill suggestions (shown when query is short / empty) ── */}
+          {mapSearchMode && mapSearchQuery.length < 2 && (() => {
+            const recentPins = readRecentSearchPins().slice(0, 2);
+            const recentTerms = readRecentSearchTerms().slice(0, 2);
+            const popularPOI = attractionPins.slice(0, 2);
+            if (!recentPins.length && !recentTerms.length && !popularPOI.length) return null;
+            return (
+              <div className="ws-search-autofill">
+                {recentPins.length > 0 && (
+                  <div className="ws-autofill-section">
+                    <div className="ws-autofill-label">Recent pins</div>
+                    {recentPins.map((pin) => (
+                      <button key={pin.id || pin.name} className="ws-autofill-item" onClick={() => {
+                        setSelectedSearchPin(pin);
+                        mapRef.current?.flyToLocation(pin.lat, pin.lng, 15);
+                      }}>
+                        <span className="ws-autofill-icon">📍</span>
+                        <span className="ws-autofill-text">{pin.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {recentTerms.length > 0 && (
+                  <div className="ws-autofill-section">
+                    <div className="ws-autofill-label">Recent searches</div>
+                    {recentTerms.map((term) => (
+                      <button key={term} className="ws-autofill-item" onClick={() => handleMapSearchQuery(term)}>
+                        <span className="ws-autofill-icon">🔍</span>
+                        <span className="ws-autofill-text">{term}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {popularPOI.length > 0 && (
+                  <div className="ws-autofill-section">
+                    <div className="ws-autofill-label">Popular nearby</div>
+                    {popularPOI.map((pin) => (
+                      <button key={pin.id} className="ws-autofill-item" onClick={() => {
+                        const searchPin = {
+                          id: pin.id,
+                          name: pin.name,
+                          displayName: pin.tags?.['addr:full'] || pin.name,
+                          lat: pin.lat,
+                          lng: pin.lng,
+                          type: 'attraction',
+                        };
+                        setSelectedSearchPin(searchPin);
+                        mapRef.current?.flyToLocation(pin.lat, pin.lng, 15);
+                      }}>
+                        <span className="ws-autofill-icon">⭐</span>
+                        <span className="ws-autofill-text">{pin.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* ── Selected search pin info card ── */}
           {selectedSearchPin && (
             <div className="ws-search-pin-card">
@@ -1486,8 +1640,8 @@ export default function TripWorkspace() {
           )}
           {offlineStatus && <div className="ws-offline-status">{offlineStatus}</div>}
 
-          {/* ── Next stop strip (map tab only) ── */}
-          {activeTab === 'map' && nextStop && (
+          {/* ── Next stop strip (map tab, normal/satellite layer only) ── */}
+          {nextStopVisible && (
             <div className="ws-next-strip">
               <div className="ws-next-info">
                 <span className="ws-next-label">Next stop</span>
