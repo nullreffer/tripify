@@ -997,12 +997,12 @@ export default function TripWorkspace() {
           const resultSets = await Promise.all(fetches);
           const allPins = resultSets.flat().filter(p => p.lat != null && p.lng != null);
 
-          // Deduplicate by proximity (keep first seen)
+          // O(n) deduplication: bucket coordinates to ~55m grid, keep first seen
+          const seenBuckets = new Set();
           const pins = [];
           for (const pin of allPins) {
-            if (!pins.some(k => Math.hypot(k.lat - pin.lat, k.lng - pin.lng) < 0.0005)) {
-              pins.push(pin);
-            }
+            const bucket = `${Math.round(pin.lat / 0.0005)},${Math.round(pin.lng / 0.0005)}`;
+            if (!seenBuckets.has(bucket)) { seenBuckets.add(bucket); pins.push(pin); }
           }
 
           const srcStr = usedSources.length > 1 ? ` (${[...new Set(usedSources)].join(', ')})` : '';
@@ -1110,12 +1110,12 @@ export default function TripWorkspace() {
         const resultSets = await Promise.all(fetches);
         const allPins = resultSets.flat().filter(p => p.lat != null && p.lng != null);
 
-        // Deduplicate by proximity, keeping OSM entries (higher quality) when close
+        // O(n) dedup: bucket to ~33m grid, OSM pins are listed first so they win
+        const seenBuckets = new Set();
         const merged = [];
         for (const pin of allPins) {
-          if (!merged.some(k => Math.hypot(k.lat - pin.lat, k.lng - pin.lng) < 0.0003)) {
-            merged.push(pin);
-          }
+          const bucket = `${Math.round(pin.lat / 0.0003)},${Math.round(pin.lng / 0.0003)}`;
+          if (!seenBuckets.has(bucket)) { seenBuckets.add(bucket); merged.push(pin); }
         }
         const top = merged.slice(0, ATTRACTIONS_TOP_N);
         const srcStr = usedSources.length > 1 ? ` (${[...new Set(usedSources)].join(', ')})` : '';
@@ -1497,8 +1497,8 @@ export default function TripWorkspace() {
                 {recentPins.length > 0 && (
                   <div className="ws-autofill-section">
                     <div className="ws-autofill-label">Recent pins</div>
-                    {recentPins.map((pin, i) => (
-                      <button key={i} className="ws-autofill-item" onClick={() => {
+                    {recentPins.map((pin) => (
+                      <button key={pin.id || pin.name} className="ws-autofill-item" onClick={() => {
                         setSelectedSearchPin(pin);
                         mapRef.current?.flyToLocation(pin.lat, pin.lng, 15);
                       }}>
@@ -1511,8 +1511,8 @@ export default function TripWorkspace() {
                 {recentTerms.length > 0 && (
                   <div className="ws-autofill-section">
                     <div className="ws-autofill-label">Recent searches</div>
-                    {recentTerms.map((term, i) => (
-                      <button key={i} className="ws-autofill-item" onClick={() => handleMapSearchQuery(term)}>
+                    {recentTerms.map((term) => (
+                      <button key={term} className="ws-autofill-item" onClick={() => handleMapSearchQuery(term)}>
                         <span className="ws-autofill-icon">🔍</span>
                         <span className="ws-autofill-text">{term}</span>
                       </button>
@@ -1522,8 +1522,8 @@ export default function TripWorkspace() {
                 {popularPOI.length > 0 && (
                   <div className="ws-autofill-section">
                     <div className="ws-autofill-label">Popular nearby</div>
-                    {popularPOI.map((pin, i) => (
-                      <button key={i} className="ws-autofill-item" onClick={() => {
+                    {popularPOI.map((pin) => (
+                      <button key={pin.id} className="ws-autofill-item" onClick={() => {
                         const searchPin = {
                           id: pin.id,
                           name: pin.name,
