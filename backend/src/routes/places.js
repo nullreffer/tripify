@@ -714,4 +714,111 @@ router.post('/overpass-search', geocodingLimit, requireAuth, async (req, res) =>
   res.status(502).json({ elements: [] });
 });
 
+// ── GET /api/places/details — Wikipedia summary + Wikimedia Commons photos ──────────────────
+// Query params: name (required), lat, lng, wikipedia (optional OSM wikipedia tag value)
+const detailsLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many requests.' },
+});
+
+router.get('/details', detailsLimit, requireAuth, async (req, res) => {
+  const { name, lat, lng, wikipedia } = req.query;
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  try {
+    // Determine Wikipedia article title
+    let wikiTitle = null;
+    let wikiLang = 'en';
+
+    if (wikipedia && typeof wikipedia === 'string') {
+      // OSM wikipedia tag: "en:Golden Gate Bridge" or just "Golden Gate Bridge"
+      const parts = wikipedia.split(':');
+      if (parts.length >= 2 && parts[0].length === 2) {
+        wikiLang = parts[0];
+        wikiTitle = parts.slice(1).join(':');
+      } else {
+        wikiTitle = wikipedia;
+      }
+    }
+
+    // If no explicit wiki tag, search by name
+    if (!wikiTitle) {
+      const searchParams = new URLSearchParams({ action: 'query', list: 'search', srsearch: name, srlimit: 1, format: 'json', origin: '*' });
+      if (lat && lng) searchParams.set('srinfo', 'rewrittenquery');
+      const searchUrl = `https://${wikiLang}.wikipedia.org/w/api.php?${searchParams}`;
+      const t0 = Date.now();
+      const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(4000), headers: { 'User-Agent': 'Azitrip/1.0' } });
+      recordOutgoing('wikipedia', searchRes.ok, Date.now() - t0);
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const hit = searchData?.query?.search?.[0];
+        if (hit) wikiTitle = hit.title;
+      }
+    }
+
+    let summary = null;
+    let thumbnail = null;
+    let wikiUrl = null;
+    let commonsImages = [];
+
+    if (wikiTitle) {
+      // Fetch extract + thumbnail + pageimage from Wikipedia
+      const extractParams = new URLSearchParams({
+        action: 'query',
+        prop: 'extracts|pageimages|images',
+        exintro: '1',
+        explaintext: '1',
+        exsentences: '3',
+        piprop: 'thumbnail',
+        pithumbsize: '600',
+        imlimit: '5',
+        titles: wikiTitle,
+        format: 'json',
+        origin: '*',
+      });
+      const extractUrl = `https://${wikiLang}.wikipedia.org/w/api.php?${extractParams}`;
+      const t1 = Date.now();
+      const extractRes = await fetch(extractUrl, { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': 'Azitrip/1.0' } });
+      recordOutgoing('wikipedia', extractRes.ok, Date.now() - t1);
+      if (extractRes.ok) {
+        const extractData = await extractRes.json();
+        const pages = extractData?.query?.pages;
+        if (pages) {
+          const page = Object.values(pages)[0];
+          if (page && page.pageid) {
+            summary = page.extract ? page.extract.slice(0, 500) : null;
+            thumbnail = page.thumbnail?.source || null;
+            wikiUrl = `https://${wikiLang}.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
+            // Gather additional image filenames from the page
+            const imageFiles = (page.images || [])
+              .filter(i => /\.(jpg|jpeg|png|webp)$/i.test(i.title))
+              .filter(i => !/flag|logo|icon|map|coat|seal|blank|locator/i.test(i.title))
+              .slice(0, 4)
+              .map(i => {
+                const fname = encodeURIComponent(i.title.replace(/^File:/i, ''));
+                return `https://commons.wikimedia.org/wiki/Special:FilePath/${fname}?width=600`;
+              });
+            commonsImages = imageFiles;
+          }
+        }
+      }
+    }
+
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({
+      summary,
+      thumbnail,
+      wikiUrl,
+      commonsImages: thumbnail ? [thumbnail, ...commonsImages].slice(0, 5) : commonsImages.slice(0, 5),
+    });
+  } catch (err) {
+    console.error('places/details error:', err.message);
+    res.json({ summary: null, thumbnail: null, wikiUrl: null, commonsImages: [] });
+  }
+});
+
 module.exports = router;

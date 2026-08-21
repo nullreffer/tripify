@@ -24,6 +24,7 @@ const weatherRoutes = require('./routes/weather');
 const routingRoutes = require('./routes/routing');
 const adminRoutes = require('./routes/admin');
 const { router: notificationRoutes } = require('./routes/notifications');
+const slideshowRoutes = require('./routes/slideshow');
 const metricsRoutes = require('./routes/metrics');
 const { requestMetrics } = require('./middleware/metrics');
 
@@ -98,6 +99,7 @@ app.use('/api/places', placesRoutes);
 app.use('/api/aqi', aqiRoutes);
 app.use('/api/weather', weatherRoutes);
 app.use('/api/routing', routingRoutes);
+app.use('/api/trips/:tripId/slideshow', slideshowRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/metrics', metricsRoutes);

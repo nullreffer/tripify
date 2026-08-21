@@ -17,6 +17,10 @@ import MoreView from '../components/more/MoreView.jsx';
 import DaysView from '../components/days/DaysView.jsx';
 import TodayView from '../components/days/TodayView.jsx';
 import GalleryView from '../components/gallery/GalleryView.jsx';
+import SlideshowView from '../components/gallery/SlideshowView.jsx';
+import SearchPinCard from '../components/stops/SearchPinCard.jsx';
+import NavigationPreview from '../components/navigation/NavigationPreview.jsx';
+import NavigationView from '../components/navigation/NavigationView.jsx';
 import { PIN_TYPES } from '../constants/pinTypes.js';
 
 const TABS = [
@@ -174,6 +178,13 @@ export default function TripWorkspace() {
   const [selectedAttraction, setSelectedAttraction] = useState(null);
   const [attractionClusterSheet, setAttractionClusterSheet] = useState(null); // array of pins in tapped cluster
   const attractionDebounce = useRef(null);
+
+  // In-app navigation state
+  const [navPreview, setNavPreview] = useState(null);   // { origin, destination } | null
+  const [navActive, setNavActive] = useState(null);     // { origin, destination } | null
+
+  // Slideshow
+  const [slideshowOpen, setSlideshowOpen] = useState(false);
   const mapLayerRef = useRef(mapLayer);
   mapLayerRef.current = mapLayer;
 
@@ -608,6 +619,28 @@ export default function TripWorkspace() {
       await tripData.reorderStops([...newOrder, ...savedStops]);
     }
   }, [tripData, routeStops, savedStops]);
+
+  /**
+   * Open directions to a destination.
+   * If inAppNavigation is enabled, shows the NavigationPreview sheet.
+   * Otherwise opens an external maps URL as before.
+   */
+  const openDirections = useCallback((originCoords, dest) => {
+    if (settings.inAppNavigation) {
+      const origin = originCoords
+        ? { lat: originCoords[0], lng: originCoords[1], name: 'Your location' }
+        : null;
+      setNavPreview({ origin, destination: dest });
+    } else {
+      const to = `${dest.lat},${dest.lng}`;
+      const isApple = /iPhone|iPad|Mac/.test(navigator.userAgent);
+      const from = originCoords ? `${originCoords[0]},${originCoords[1]}` : '';
+      const url = isApple
+        ? `maps://maps.apple.com/?saddr=${from}&daddr=${to}`
+        : `https://www.google.com/maps/dir/?api=1&origin=${from}&destination=${to}`;
+      window.open(url, '_blank');
+    }
+  }, [settings.inAppNavigation]);
 
   // Mark reached from any tab — set targetDate to now and shift subsequent stop dates
   const handleMarkReached = useCallback(async (stopId, reached = true) => {
@@ -1566,53 +1599,17 @@ export default function TripWorkspace() {
 
           {/* ── Selected search pin info card ── */}
           {selectedSearchPin && (
-            <div className="ws-search-pin-card">
-              <div className="ws-spc-handle" />
-              <button className="ws-spc-close" onClick={() => setSelectedSearchPin(null)} aria-label="Close">×</button>
-              <div className="ws-spc-name">{selectedSearchPin.name}</div>
-              {(selectedSearchPin.category || selectedSearchPin.type) && (
-                <div className="ws-spc-type">{selectedSearchPin.type || selectedSearchPin.category}</div>
-              )}
-              <div className="ws-spc-addr">{selectedSearchPin.displayName}</div>
-              {selectedSearchPin.extratags?.rating != null && (
-                <div className="ws-spc-detail">⭐ <span>{selectedSearchPin.extratags.rating}{selectedSearchPin.extratags.user_ratings_total ? ` (${selectedSearchPin.extratags.user_ratings_total} reviews)` : ''}</span></div>
-              )}
-              {selectedSearchPin.extratags?.opening_hours && (
-                <div className="ws-spc-detail">⏰ <span>{selectedSearchPin.extratags.opening_hours}</span></div>
-              )}
-              {selectedSearchPin.extratags?.phone && (
-                <div className="ws-spc-detail">📞 <a href={`tel:${selectedSearchPin.extratags.phone}`}>{selectedSearchPin.extratags.phone}</a></div>
-              )}
-              {selectedSearchPin.extratags?.website && (
-                <div className="ws-spc-detail">🌐 <a href={selectedSearchPin.extratags.website} target="_blank" rel="noopener noreferrer">Website</a></div>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
-                <button
-                  className="btn-primary ws-spc-add"
-                  onClick={() => handleAddSearchPin(selectedSearchPin, 'next')}
-                >
-                  ↑ Add as next stop
-                </button>
-                <button
-                  className="btn-primary ws-spc-add"
-                  onClick={() => handleAddSearchPin(selectedSearchPin, 'afterNearest')}
-                >
-                  + Add after nearest pin
-                </button>
-                <button
-                  className="btn-primary ws-spc-add"
-                  onClick={() => handleAddSearchPin(selectedSearchPin, 'beforeNearest')}
-                >
-                  ↓ Add before nearest pin
-                </button>
-                <button
-                  className="btn-secondary ws-spc-add"
-                  onClick={() => handleAddSearchPin({ ...selectedSearchPin, saveForLater: true })}
-                >
-                  🔖 Save for later
-                </button>
-              </div>
-            </div>
+            <SearchPinCard
+              pin={selectedSearchPin}
+              onClose={() => setSelectedSearchPin(null)}
+              onAdd={(mode) => {
+                if (mode === 'saveForLater') {
+                  handleAddSearchPin({ ...selectedSearchPin, saveForLater: true });
+                } else {
+                  handleAddSearchPin(selectedSearchPin, mode);
+                }
+              }}
+            />
           )}
           {weatherLoading && ['weather-current', 'weather-scheduled'].includes(mapLayer) && (
             <div className="ws-offline-status">Loading weather along your route…</div>
@@ -1690,15 +1687,7 @@ export default function TripWorkspace() {
               <div className="ws-next-actions">
                 <button
                   className="ws-nav-btn"
-                  onClick={() => {
-                    const from = userLocation ? `${userLocation[0]},${userLocation[1]}` : '';
-                    const to = `${nextStop.lat},${nextStop.lng}`;
-                    const isApple = /iPhone|iPad|Mac/.test(navigator.userAgent);
-                    const url = isApple
-                      ? `maps://maps.apple.com/?daddr=${to}`
-                      : `https://www.google.com/maps/dir/?api=1&destination=${to}`;
-                    window.open(url, '_blank');
-                  }}
+                  onClick={() => openDirections(userLocation, { lat: nextStop.lat, lng: nextStop.lng, name: nextStop.name })}
                 >
                   Directions
                 </button>
@@ -1839,16 +1828,25 @@ export default function TripWorkspace() {
               />
             )}
             {activeTab === 'gallery' && (
-              <GalleryView
-                stops={stops}
-                onBack={() => setActiveTab('more')}
-                onOpenStop={stop => handleOpenStop(stop)}
-                onDeletePhoto={async (stop) => {
-                  const updatedMeta = { ...stop.metadata };
-                  delete updatedMeta.photo;
-                  await tripData.updateStop(stop.id, { metadata: updatedMeta });
-                }}
-              />
+              slideshowOpen ? (
+                <SlideshowView
+                  tripId={id}
+                  stops={stops}
+                  onBack={() => setSlideshowOpen(false)}
+                />
+              ) : (
+                <GalleryView
+                  stops={stops}
+                  onBack={() => setActiveTab('more')}
+                  onOpenStop={stop => handleOpenStop(stop)}
+                  onSlideshow={() => setSlideshowOpen(true)}
+                  onDeletePhoto={async (stop) => {
+                    const updatedMeta = { ...stop.metadata };
+                    delete updatedMeta.photo;
+                    await tripData.updateStop(stop.id, { metadata: updatedMeta });
+                  }}
+                />
+              )
             )}
           </div>
         )}
@@ -1884,6 +1882,7 @@ export default function TripWorkspace() {
           }}
           onOpenNearbySearch={() => handleOpenStop(selectedStop, { searchNearby: true })}
           onAskWhatsAround={() => openWhatsAroundInAi(selectedStop)}
+          onDirections={openDirections}
           onAddToRoute={handleAddSavedToRoute}
           onReach={() => {
             const wasReached = selectedStop.reached;
@@ -2094,143 +2093,60 @@ export default function TripWorkspace() {
 
       {/* ── Attraction detail sheet ── */}
       {selectedAttraction && (
-        <div className="sheet-overlay" onClick={() => setSelectedAttraction(null)}>
-          <div className="sheet" onClick={e => e.stopPropagation()}>
-            <div className="sheet-header">
-              <span className="sheet-title">⭐ {selectedAttraction.name}</span>
-              <button className="sheet-close" onClick={() => setSelectedAttraction(null)}>✕</button>
-            </div>
-            <div className="sheet-body">
-              {/* Image */}
-              {(() => {
-                const commons = selectedAttraction.tags?.wikimedia_commons;
-                const imgTag = selectedAttraction.tags?.image;
-                if (commons) {
-                  const filename = encodeURIComponent(commons.replace(/^File:/i, ''));
-                  return (
-                    <img
-                      src={`https://commons.wikimedia.org/wiki/Special:FilePath/${filename}?width=400`}
-                      alt={selectedAttraction.name}
-                      style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '8px', marginBottom: '10px' }}
-                      onError={e => { e.target.style.display = 'none'; }}
-                    />
-                  );
-                }
-                if (imgTag && imgTag.startsWith('http')) {
-                  return (
-                    <img
-                      src={imgTag}
-                      alt={selectedAttraction.name}
-                      style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '8px', marginBottom: '10px' }}
-                      onError={e => { e.target.style.display = 'none'; }}
-                      referrerPolicy="no-referrer"
-                    />
-                  );
-                }
-                return null;
-              })()}
+        <SearchPinCard
+          pin={{
+            ...selectedAttraction,
+            displayName: selectedAttraction.tags?.['addr:full'] || selectedAttraction.name,
+            type: selectedAttraction.tags?.tourism || selectedAttraction.tags?.historic || selectedAttraction.tags?.natural || selectedAttraction.tags?.leisure || selectedAttraction.tags?.amenity || selectedAttraction.tags?.shop || selectedAttraction.type || '',
+            wikipedia: selectedAttraction.wikipedia,
+          }}
+          onClose={() => setSelectedAttraction(null)}
+          onAdd={(mode) => {
+            setSelectedAttraction(null);
+            if (mode === 'saveForLater') {
+              handleAddSearchPin({ ...selectedAttraction, displayName: selectedAttraction.name, saveForLater: true });
+            } else {
+              handleAddSearchPin({ ...selectedAttraction, displayName: selectedAttraction.name }, mode);
+            }
+          }}
+        />
+      )}
 
-              {/* Type / category */}
-              {selectedAttraction.tags?.tourism && (
-                <div className="sheet-detail-row">🏷 Tourism: {selectedAttraction.tags.tourism}</div>
-              )}
-              {selectedAttraction.tags?.historic && (
-                <div className="sheet-detail-row">🏛 Historic: {selectedAttraction.tags.historic}</div>
-              )}
-              {selectedAttraction.tags?.natural && (
-                <div className="sheet-detail-row">🌿 Natural: {selectedAttraction.tags.natural}</div>
-              )}
-              {selectedAttraction.tags?.leisure && (
-                <div className="sheet-detail-row">🎯 Leisure: {selectedAttraction.tags.leisure}</div>
-              )}
-              {selectedAttraction.tags?.amenity && (
-                <div className="sheet-detail-row">🏢 Amenity: {selectedAttraction.tags.amenity}</div>
-              )}
-              {selectedAttraction.tags?.shop && (
-                <div className="sheet-detail-row">🛍 Shop: {selectedAttraction.tags.shop}</div>
-              )}
+      {/* ── In-app Navigation Preview ── */}
+      {navPreview && (
+        <NavigationPreview
+          origin={navPreview.origin}
+          destination={navPreview.destination}
+          mapLayer={mapLayer}
+          units={units}
+          onClose={() => setNavPreview(null)}
+          onStart={() => {
+            setNavActive(navPreview);
+            setNavPreview(null);
+          }}
+        />
+      )}
 
-              {/* Description */}
-              {selectedAttraction.tags?.description && (
-                <div className="sheet-detail-row" style={{ fontStyle: 'italic' }}>
-                  ℹ️ {selectedAttraction.tags.description}
-                </div>
-              )}
-
-              {/* Hours */}
-              {selectedAttraction.tags?.opening_hours && (
-                <div className="sheet-detail-row">⏰ {selectedAttraction.tags.opening_hours}</div>
-              )}
-
-              {/* Fee */}
-              {selectedAttraction.tags?.fee && (
-                <div className="sheet-detail-row">💵 Fee: {selectedAttraction.tags.fee}{selectedAttraction.tags?.fee_amount ? ` (${selectedAttraction.tags.fee_amount})` : ''}</div>
-              )}
-
-              {/* Contact */}
-              {(selectedAttraction.tags?.phone || selectedAttraction.tags?.['contact:phone']) && (
-                <div className="sheet-detail-row">
-                  📞 <a href={`tel:${selectedAttraction.tags.phone || selectedAttraction.tags['contact:phone']}`}>
-                    {selectedAttraction.tags.phone || selectedAttraction.tags['contact:phone']}
-                  </a>
-                </div>
-              )}
-              {(selectedAttraction.tags?.website || selectedAttraction.tags?.['contact:website']) && (
-                <div className="sheet-detail-row">
-                  🌐 <a href={selectedAttraction.tags.website || selectedAttraction.tags['contact:website']} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>
-                    Website
-                  </a>
-                </div>
-              )}
-
-              {/* Wikipedia */}
-              {selectedAttraction.wikipedia && (() => {
-                const [lang, ...rest] = selectedAttraction.wikipedia.split(':');
-                const wikiLang = rest.length ? lang : 'en';
-                const article = rest.length ? rest.join(':') : lang;
-                return (
-                  <div className="sheet-detail-row">
-                    <a
-                      href={`https://${wikiLang}.wikipedia.org/wiki/${encodeURIComponent(article)}`}
-                      target="_blank" rel="noopener noreferrer"
-                      style={{ color: 'var(--primary)' }}
-                    >
-                      📖 Wikipedia
-                    </a>
-                  </div>
-                );
-              })()}
-
-              {/* Source + coordinates */}
-              <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <span>📍 {selectedAttraction.lat.toFixed(5)}, {selectedAttraction.lng.toFixed(5)}</span>
-                {selectedAttraction.source && (
-                  <span style={{ background: 'var(--border)', padding: '1px 6px', borderRadius: '99px' }}>
-                    {selectedAttraction.source === 'osm' ? 'OpenStreetMap' : selectedAttraction.source.toUpperCase()}
-                  </span>
-                )}
-              </div>
-
-              <div style={{ marginTop: 12 }}>
-                <button
-                  className="btn-primary btn-sm"
-                  onClick={() => {
-                    setSelectedAttraction(null);
-                    setShowSearch({
-                      prefill: {
-                        lat: selectedAttraction.lat,
-                        lng: selectedAttraction.lng,
-                        name: selectedAttraction.name,
-                      },
-                    });
-                  }}
-                >
-                  + Add as stop
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* ── Active Navigation ── */}
+      {navActive && (
+        <NavigationView
+          origin={navActive.origin}
+          destination={navActive.destination}
+          tripId={id}
+          currentStop={routeStops.find(s => s.reached) || null}
+          nextStop={nextStop || null}
+          mapLayer={mapLayer}
+          units={units}
+          onStop={() => setNavActive(null)}
+          onAddStop={async (query) => {
+            const { searchNearby: search } = await import('../services/geocoding.js');
+            const mapCenter = navActive.destination;
+            const results = await search(query, mapCenter, 80000);
+            if (results[0]) {
+              await handleAddSearchPin({ ...results[0] }, 'next');
+            }
+          }}
+        />
       )}
 
       {/* ── Gas station info sheet ── */}

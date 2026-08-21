@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
-export default function GalleryView({ stops, onBack, onOpenStop, onDeletePhoto }) {
+export default function GalleryView({ stops, onBack, onOpenStop, onDeletePhoto, onSlideshow }) {
   const galleryStops = stops.filter(s => s?.metadata?.photo);
   const [slideIndex, setSlideIndex] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -68,7 +68,12 @@ export default function GalleryView({ stops, onBack, onOpenStop, onDeletePhoto }
       <div className="gallery-header">
         <button className="btn-ghost btn-sm" onClick={onBack}>← Back to More</button>
         <h3>Gallery</h3>
-        <span className="more-gallery-count">{galleryStops.length} photo{galleryStops.length === 1 ? '' : 's'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="more-gallery-count">{galleryStops.length} photo{galleryStops.length === 1 ? '' : 's'}</span>
+          {onSlideshow && galleryStops.length > 0 && (
+            <button className="btn-primary btn-sm" onClick={onSlideshow} title="Open slideshow">🎞 Slideshow</button>
+          )}
+        </div>
       </div>
 
       {galleryStops.length === 0 ? (

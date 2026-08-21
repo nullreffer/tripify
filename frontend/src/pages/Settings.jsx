@@ -307,6 +307,50 @@ export default function Settings() {
           <div className="settings-divider" />
 
           <div className="settings-section">
+            <h3>🧭 Navigation</h3>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>In-app navigation</span>
+                <span className="settings-row-hint">
+                  When enabled, tapping any Directions button shows a turn-by-turn route preview
+                  inside the app and lets you start navigation without leaving Tripify.
+                  When disabled, directions open Google Maps or Apple Maps as usual.
+                </span>
+              </div>
+              <button
+                className={`btn-${settings.inAppNavigation ? 'primary' : 'secondary'} btn-sm`}
+                onClick={() => update('inAppNavigation', !settings.inAppNavigation)}
+              >
+                {settings.inAppNavigation ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+          </div>
+
+          <div className="settings-divider" />
+
+          <div className="settings-section">
+            <h3>🎞 Trip Slideshow</h3>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <span>Suggest slideshow on completion</span>
+                <span className="settings-row-hint">
+                  When all stops are marked as reached, prompt to generate an AI-captioned
+                  photo slideshow summarising the trip. You can also open the slideshow
+                  any time from the Gallery tab.
+                </span>
+              </div>
+              <button
+                className={`btn-${settings.slideshowOnComplete ? 'primary' : 'secondary'} btn-sm`}
+                onClick={() => update('slideshowOnComplete', !settings.slideshowOnComplete)}
+              >
+                {settings.slideshowOnComplete ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+          </div>
+
+          <div className="settings-divider" />
+
+          <div className="settings-section">
             <h3>Trails</h3>
             <div className="settings-row">
               <div className="settings-row-label">

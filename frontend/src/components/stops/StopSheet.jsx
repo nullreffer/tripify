@@ -70,7 +70,7 @@ function compressImage(file, maxDim = 1200, quality = 0.82) {
 
 const ENTRY_ICONS = { ACTIVITY: '🥾', TRAVEL: '🚗', ACCOMMODATION: '🏕', NOTE: '📝' };
 
-export default function StopSheet({ stop, stops, days = [], route, userLocation, onClose, onUpdate, onOpenNearbySearch, onAskWhatsAround, onReach, onDelete, onAddToRoute, canEdit }) {
+export default function StopSheet({ stop, stops, days = [], route, userLocation, onClose, onUpdate, onOpenNearbySearch, onAskWhatsAround, onDirections, onReach, onDelete, onAddToRoute, canEdit }) {
   const [tab, setTab] = useState('info');
   const [name, setName] = useState(stop.name);
   const [pinType, setPinType] = useState(stop.pinType);
@@ -170,6 +170,13 @@ export default function StopSheet({ stop, stops, days = [], route, userLocation,
   };
 
   const handleDirections = (fromCurrentLocation) => {
+    if (onDirections) {
+      const originCoords = fromCurrentLocation
+        ? (userLocation || null)
+        : (prevStop ? [prevStop.lat, prevStop.lng] : nearestRouteStop ? [nearestRouteStop.lat, nearestRouteStop.lng] : null);
+      onDirections(originCoords, { lat: stop.lat, lng: stop.lng, name: stop.name });
+      return;
+    }
     const to = `${stop.lat},${stop.lng}`;
     const fromCoords = fromCurrentLocation
       ? (userLocation ? `${userLocation[0]},${userLocation[1]}` : '')
