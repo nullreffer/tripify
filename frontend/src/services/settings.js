@@ -12,6 +12,8 @@ export const DEFAULTS = {
   poiLimit: 10,               // max number of POI pins shown on the map (0–20)
   fuelEfficiencyMpg: 25,      // vehicle fuel efficiency in MPG (imperial) or L/100km (metric)
   fuelPricePerGallon: null,   // fuel price per gallon (imperial) or per liter (metric); null = not set
+  inAppNavigation: false,     // navigate inside the app instead of opening Google/Apple Maps
+  slideshowOnComplete: false, // prompt to generate slideshow when all stops are reached
 };
 
 export function getSettings() {

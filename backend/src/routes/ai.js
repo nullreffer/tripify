@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
 const { GEMINI_MODEL } = require('../config/gemini');
@@ -6,6 +7,15 @@ const { sendPushToTripMembers } = require('./notifications');
 
 const prisma = new PrismaClient();
 const router = express.Router({ mergeParams: true });
+
+const aiLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many AI requests. Please slow down.' },
+});
 
 // Build trip context string for AI
 function buildTripContext(trip, stops, categories, days, reservations) {
@@ -191,6 +201,80 @@ router.get('/history', requireAuth, async (req, res, next) => {
       take: 50
     });
     res.json(messages);
+  } catch (err) { next(err); }
+});
+
+// POST /api/trips/:tripId/ai/navigation-command
+// Accepts a voice transcript and navigation context, returns an AI-classified response.
+router.post('/navigation-command', aiLimit, requireAuth, async (req, res, next) => {
+  try {
+    const { transcript, currentStop, nextStop, remainingRoute, userLocation } = req.body;
+    if (!transcript?.trim()) return res.status(400).json({ error: 'transcript is required' });
+
+    const trip = await prisma.trip.findFirst({
+      where: {
+        id: req.params.tripId,
+        OR: [
+          { userId: req.user.id },
+          { members: { some: { userId: req.user.id } } }
+        ]
+      }
+    });
+    if (!trip) return res.status(404).json({ error: 'Trip not found' });
+
+    const GEMINI_KEY = process.env.GEMINI_API_KEY;
+    if (!GEMINI_KEY) {
+      return res.json({
+        type: 'answer',
+        text: 'AI assistant is not configured. Please set GEMINI_API_KEY.',
+        action: null,
+      });
+    }
+
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(GEMINI_KEY);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    const ctx = [
+      `Trip: "${trip.title}"`,
+      currentStop ? `Current stop: ${currentStop.name} (${currentStop.lat}, ${currentStop.lng})` : null,
+      nextStop ? `Next stop: ${nextStop.name} (${nextStop.lat}, ${nextStop.lng})` : null,
+      userLocation ? `User location: lat ${userLocation.lat}, lng ${userLocation.lng}` : null,
+      remainingRoute?.distanceMeters != null
+        ? `Remaining distance to next stop: ${Math.round(remainingRoute.distanceMeters / 1609)} miles`
+        : null,
+    ].filter(Boolean).join('\n');
+
+    const prompt = `You are a helpful in-car navigation assistant for the travel app Azitrip.
+
+Navigation context:
+${ctx}
+
+User voice command: "${transcript.trim()}"
+
+Classify this command and respond in JSON with this exact shape:
+{
+  "type": "add_stop" | "eta_query" | "answer",
+  "text": "<spoken response to read back, max 2 sentences>",
+  "action": null | {
+    "type": "add_stop",
+    "searchQuery": "<search query to find the place>",
+    "insertAs": "next"
+  }
+}
+
+Rules:
+- If the user wants to add a place en-route (Costco, rest stop, gas station, etc.) → type="add_stop", include action with searchQuery
+- If the user asks about distance/time to something → type="eta_query", text answers based on context, action=null
+- Otherwise → type="answer", text is the answer, action=null
+- Keep the spoken response natural and concise for a driver`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.json({ type: 'answer', text, action: null });
+    const parsed = JSON.parse(jsonMatch[0]);
+    res.json(parsed);
   } catch (err) { next(err); }
 });
 
