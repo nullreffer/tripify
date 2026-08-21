@@ -744,12 +744,20 @@ router.get('/details', detailsLimit, requireAuth, async (req, res) => {
         wikiTitle = wikipedia;
       }
     }
+    // Validate wikiLang is a safe ISO language code (2-3 lowercase ASCII letters only)
+    // to prevent host injection in the Wikipedia API URL.
+    if (!/^[a-z]{2,3}$/.test(wikiLang)) wikiLang = 'en';
 
     // If no explicit wiki tag, search by name
     if (!wikiTitle) {
       const searchParams = new URLSearchParams({ action: 'query', list: 'search', srsearch: name, srlimit: 1, format: 'json', origin: '*' });
       if (lat && lng) searchParams.set('srinfo', 'rewrittenquery');
       const searchUrl = `https://${wikiLang}.wikipedia.org/w/api.php?${searchParams}`;
+      // Guard: ensure URL resolves to wikipedia.org (no host injection)
+      const searchParsed = new URL(searchUrl);
+      if (!searchParsed.hostname.endsWith('.wikipedia.org')) {
+        return res.json({ summary: null, thumbnail: null, wikiUrl: null, commonsImages: [] });
+      }
       const t0 = Date.now();
       const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(4000), headers: { 'User-Agent': 'Azitrip/1.0' } });
       recordOutgoing('wikipedia', searchRes.ok, Date.now() - t0);
@@ -781,6 +789,11 @@ router.get('/details', detailsLimit, requireAuth, async (req, res) => {
         origin: '*',
       });
       const extractUrl = `https://${wikiLang}.wikipedia.org/w/api.php?${extractParams}`;
+      // Guard: ensure URL resolves to wikipedia.org
+      const extractParsed = new URL(extractUrl);
+      if (!extractParsed.hostname.endsWith('.wikipedia.org')) {
+        return res.json({ summary: null, thumbnail: null, wikiUrl: null, commonsImages: [] });
+      }
       const t1 = Date.now();
       const extractRes = await fetch(extractUrl, { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': 'Azitrip/1.0' } });
       recordOutgoing('wikipedia', extractRes.ok, Date.now() - t1);

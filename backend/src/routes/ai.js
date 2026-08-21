@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
 const requireAuth = require('../middleware/requireAuth');
 const { GEMINI_MODEL } = require('../config/gemini');
@@ -6,6 +7,15 @@ const { sendPushToTripMembers } = require('./notifications');
 
 const prisma = new PrismaClient();
 const router = express.Router({ mergeParams: true });
+
+const aiLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many AI requests. Please slow down.' },
+});
 
 // Build trip context string for AI
 function buildTripContext(trip, stops, categories, days, reservations) {
@@ -196,7 +206,7 @@ router.get('/history', requireAuth, async (req, res, next) => {
 
 // POST /api/trips/:tripId/ai/navigation-command
 // Accepts a voice transcript and navigation context, returns an AI-classified response.
-router.post('/navigation-command', requireAuth, async (req, res, next) => {
+router.post('/navigation-command', aiLimit, requireAuth, async (req, res, next) => {
   try {
     const { transcript, currentStop, nextStop, remainingRoute, userLocation } = req.body;
     if (!transcript?.trim()) return res.status(400).json({ error: 'transcript is required' });
