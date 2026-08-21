@@ -750,16 +750,17 @@ router.get('/details', detailsLimit, requireAuth, async (req, res) => {
 
     // If no explicit wiki tag, search by name
     if (!wikiTitle) {
-      const searchParams = new URLSearchParams({ action: 'query', list: 'search', srsearch: name, srlimit: 1, format: 'json', origin: '*' });
-      if (lat && lng) searchParams.set('srinfo', 'rewrittenquery');
-      const searchUrl = `https://${wikiLang}.wikipedia.org/w/api.php?${searchParams}`;
-      // Guard: ensure URL resolves to wikipedia.org (no host injection)
-      const searchParsed = new URL(searchUrl);
-      if (!searchParsed.hostname.endsWith('.wikipedia.org')) {
-        return res.json({ summary: null, thumbnail: null, wikiUrl: null, commonsImages: [] });
-      }
+      // Always use en.wikipedia.org for server-side API calls — only query params contain user data.
+      const wikiSearchBase = new URL('https://en.wikipedia.org/w/api.php');
+      wikiSearchBase.searchParams.set('action', 'query');
+      wikiSearchBase.searchParams.set('list', 'search');
+      wikiSearchBase.searchParams.set('srsearch', name);
+      wikiSearchBase.searchParams.set('srlimit', '1');
+      wikiSearchBase.searchParams.set('format', 'json');
+      wikiSearchBase.searchParams.set('origin', '*');
+      if (lat && lng) wikiSearchBase.searchParams.set('srinfo', 'rewrittenquery');
       const t0 = Date.now();
-      const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(4000), headers: { 'User-Agent': 'Azitrip/1.0' } });
+      const searchRes = await fetch(wikiSearchBase.toString(), { signal: AbortSignal.timeout(4000), headers: { 'User-Agent': 'Azitrip/1.0' } });
       recordOutgoing('wikipedia', searchRes.ok, Date.now() - t0);
       if (searchRes.ok) {
         const searchData = await searchRes.json();
@@ -774,28 +775,21 @@ router.get('/details', detailsLimit, requireAuth, async (req, res) => {
     let commonsImages = [];
 
     if (wikiTitle) {
-      // Fetch extract + thumbnail + pageimage from Wikipedia
-      const extractParams = new URLSearchParams({
-        action: 'query',
-        prop: 'extracts|pageimages|images',
-        exintro: '1',
-        explaintext: '1',
-        exsentences: '3',
-        piprop: 'thumbnail',
-        pithumbsize: '600',
-        imlimit: '5',
-        titles: wikiTitle,
-        format: 'json',
-        origin: '*',
-      });
-      const extractUrl = `https://${wikiLang}.wikipedia.org/w/api.php?${extractParams}`;
-      // Guard: ensure URL resolves to wikipedia.org
-      const extractParsed = new URL(extractUrl);
-      if (!extractParsed.hostname.endsWith('.wikipedia.org')) {
-        return res.json({ summary: null, thumbnail: null, wikiUrl: null, commonsImages: [] });
-      }
+      // Fetch extract + thumbnail + pageimages from Wikipedia.
+      const wikiExtractBase = new URL('https://en.wikipedia.org/w/api.php');
+      wikiExtractBase.searchParams.set('action', 'query');
+      wikiExtractBase.searchParams.set('prop', 'extracts|pageimages|images');
+      wikiExtractBase.searchParams.set('exintro', '1');
+      wikiExtractBase.searchParams.set('explaintext', '1');
+      wikiExtractBase.searchParams.set('exsentences', '3');
+      wikiExtractBase.searchParams.set('piprop', 'thumbnail');
+      wikiExtractBase.searchParams.set('pithumbsize', '600');
+      wikiExtractBase.searchParams.set('imlimit', '5');
+      wikiExtractBase.searchParams.set('titles', wikiTitle);
+      wikiExtractBase.searchParams.set('format', 'json');
+      wikiExtractBase.searchParams.set('origin', '*');
       const t1 = Date.now();
-      const extractRes = await fetch(extractUrl, { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': 'Azitrip/1.0' } });
+      const extractRes = await fetch(wikiExtractBase.toString(), { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': 'Azitrip/1.0' } });
       recordOutgoing('wikipedia', extractRes.ok, Date.now() - t1);
       if (extractRes.ok) {
         const extractData = await extractRes.json();
@@ -805,6 +799,7 @@ router.get('/details', detailsLimit, requireAuth, async (req, res) => {
           if (page && page.pageid) {
             summary = page.extract ? page.extract.slice(0, 500) : null;
             thumbnail = page.thumbnail?.source || null;
+            // Build the user-facing Wikipedia URL using the detected language (only used as a returned string, not for server fetch)
             wikiUrl = `https://${wikiLang}.wikipedia.org/wiki/${encodeURIComponent(wikiTitle)}`;
             // Gather additional image filenames from the page
             const imageFiles = (page.images || [])
