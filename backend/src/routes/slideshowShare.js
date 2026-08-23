@@ -1,54 +1,49 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
-const requireAuth = require('../middleware/requireAuth');
 const { GEMINI_MODEL } = require('../config/gemini');
 
 const prisma = new PrismaClient();
-const router = express.Router({ mergeParams: true });
+const router = express.Router();
 
-const slideshowLimit = rateLimit({
+const publicSlideshowLimit = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.user?.id || req.ip,
+  keyGenerator: (req) => req.ip,
   message: { error: 'Too many requests. Please slow down.' },
 });
 
-// POST /api/trips/:tripId/slideshow
-// Generates AI captions for each stop that has a photo, returns ordered slide data.
-router.post('/', slideshowLimit, requireAuth, async (req, res, next) => {
+// GET /api/slideshow-share/:token
+// Public endpoint — no auth required. Returns slideshow slides for the given share token.
+router.get('/:token', publicSlideshowLimit, async (req, res, next) => {
   try {
-    const trip = await prisma.trip.findFirst({
-      where: {
-        id: req.params.tripId,
-        OR: [
-          { userId: req.user.id },
-          { members: { some: { userId: req.user.id } } }
-        ]
-      }
+    const share = await prisma.slideshowShare.findUnique({
+      where: { token: req.params.token },
+      include: { trip: true }
     });
-    if (!trip) return res.status(404).json({ error: 'Trip not found' });
+    if (!share) return res.status(404).json({ error: 'Slideshow not found or link has expired' });
+    if (share.expiresAt && share.expiresAt < new Date()) {
+      return res.status(410).json({ error: 'This slideshow link has expired' });
+    }
 
     const stops = await prisma.stop.findMany({
-      where: { tripId: req.params.tripId },
+      where: { tripId: share.tripId },
       orderBy: { order: 'asc' },
     });
 
-    // Build slides from stops that have photos
     const photoStops = stops.filter(s => {
       const meta = s.metadata || {};
       return Array.isArray(meta.photos) ? meta.photos.length > 0 : !!meta.photo;
     });
 
     if (photoStops.length === 0) {
-      return res.json({ slides: [], message: 'No stop photos found.' });
+      return res.json({ slides: [], tripTitle: share.trip.title });
     }
 
     const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
-    // Build slides — generate AI captions if Gemini is available
     const slides = await Promise.all(photoStops.map(async (stop, idx) => {
       const meta = stop.metadata || {};
       const photos = Array.isArray(meta.photos) ? meta.photos : (meta.photo ? [meta.photo] : []);
@@ -64,7 +59,7 @@ router.post('/', slideshowLimit, requireAuth, async (req, res, next) => {
           const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
           const stopContext = [
-            `Trip: "${trip.title}"`,
+            `Trip: "${share.trip.title}"`,
             `Stop ${idx + 1} of ${photoStops.length}: ${stop.name}`,
             stop.address ? `Location: ${stop.address}` : null,
             stop.targetDate ? `Date: ${new Date(stop.targetDate).toLocaleDateString()}` : null,
@@ -75,14 +70,13 @@ router.post('/', slideshowLimit, requireAuth, async (req, res, next) => {
 
           const result = await model.generateContent(prompt);
           const text = result.response.text().trim();
-          // Parse JSON from response, handling markdown code blocks
           const jsonMatch = text.match(/\{[\s\S]*?\}/);
           if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
             caption = parsed.caption || caption;
             narrative = parsed.narrative || null;
           }
-        } catch (err) {
+        } catch {
           // Fall back to notes or null
         }
       }
@@ -100,35 +94,7 @@ router.post('/', slideshowLimit, requireAuth, async (req, res, next) => {
       };
     }));
 
-    res.json({ slides, tripTitle: trip.title, tripId: trip.id });
-  } catch (err) { next(err); }
-});
-
-// POST /api/trips/:tripId/slideshow/share
-// Creates a shareable token for the trip slideshow. Requires auth.
-router.post('/share', requireAuth, async (req, res, next) => {
-  try {
-    const trip = await prisma.trip.findFirst({
-      where: {
-        id: req.params.tripId,
-        OR: [
-          { userId: req.user.id },
-          { members: { some: { userId: req.user.id } } }
-        ]
-      }
-    });
-    if (!trip) return res.status(404).json({ error: 'Trip not found' });
-
-    const share = await prisma.slideshowShare.create({
-      data: { tripId: req.params.tripId }
-    });
-
-    const frontendUrl = process.env.FRONTEND_URL
-      ? process.env.FRONTEND_URL.split(',')[0].trim()
-      : 'http://localhost:5173';
-    const shareUrl = `${frontendUrl}/slideshow/${share.token}`;
-
-    res.status(201).json({ token: share.token, shareUrl });
+    res.json({ slides, tripTitle: share.trip.title });
   } catch (err) { next(err); }
 });
 

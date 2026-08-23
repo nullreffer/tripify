@@ -611,7 +611,14 @@ function Dashboard() {
         ) : (
           <div className="trips-grid">
             {trips.map(trip => (
-              <TripCard key={trip.id} trip={trip} onInvite={setInviteTarget} onClick={() => navigate(`/trips/${trip.id}`)} />
+              <TripCard
+                key={trip.id}
+                trip={trip}
+                onInvite={setInviteTarget}
+                onClick={() => navigate(`/trips/${trip.id}`)}
+                onSlideshow={() => navigate(`/trips/${trip.id}?view=slideshow`)}
+                onGallery={() => navigate(`/trips/${trip.id}?view=gallery`)}
+              />
             ))}
           </div>
         )}

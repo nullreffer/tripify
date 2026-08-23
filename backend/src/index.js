@@ -26,6 +26,7 @@ const adminRoutes = require('./routes/admin');
 const { router: notificationRoutes } = require('./routes/notifications');
 const slideshowRoutes = require('./routes/slideshow');
 const metricsRoutes = require('./routes/metrics');
+const slideshowShareRoutes = require('./routes/slideshowShare');
 const { requestMetrics } = require('./middleware/metrics');
 
 const app = express();
@@ -103,6 +104,7 @@ app.use('/api/trips/:tripId/slideshow', slideshowRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.use('/api/slideshow-share', slideshowShareRoutes);
 
 // Global error handler
 app.use((err, _req, res, _next) => {

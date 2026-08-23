@@ -458,6 +458,7 @@ const TripMap = forwardRef(function TripMap(
     attractionStatus = null,
     gasPins = [], onGasPinClick,
     gasStatus = null,
+    auroraPins = [],
     mapTileProvider = 'stadia' },
   mapRef
 ) {
@@ -482,6 +483,7 @@ const TripMap = forwardRef(function TripMap(
 
   const isAqiLayer = mapLayer === 'aqi';
   const isGasLayer = mapLayer === 'gas';
+  const isAuroraLayer = mapLayer === 'aurora';
   // When AQI tiles are configured, use the proxy URL; otherwise fall back to AQI pins only
   const aqiTileUrl = aqiTilesAvailable
     ? `${API_BASE}/api/aqi/tile/{z}/{x}/{y}`
@@ -520,10 +522,13 @@ const TripMap = forwardRef(function TripMap(
       attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
     },
   };
-  // AQI and gas layers use the normal base map + an overlay/pins on top
+  // AQI and gas layers use the normal base map + an overlay/pins on top.
+  // Aurora uses the dark map for a more atmospheric look.
   const layer = (isAqiLayer || isGasLayer)
     ? (tileLayerByMode.normal)
-    : (tileLayerByMode[mapLayer] || tileLayerByMode.normal);
+    : isAuroraLayer
+      ? (tileLayerByMode.normal)
+      : (tileLayerByMode[mapLayer] || tileLayerByMode.normal);
 
   const defaultCenter = stops.length > 0
     ? [stops[0].lat, stops[0].lng]
@@ -683,6 +688,16 @@ const TripMap = forwardRef(function TripMap(
             position={[pin.lat, pin.lng]}
             icon={makeGasIcon(pin.name)}
             eventHandlers={onGasPinClick ? { click: () => onGasPinClick(pin) } : {}}
+          />
+        ))}
+
+        {/* Aurora visibility circles (shown on aurora layer) */}
+        {isAuroraLayer && auroraPins.map(pin => (
+          <Circle
+            key={`aurora-${pin.id}`}
+            center={[pin.lat, pin.lng]}
+            radius={150000}
+            pathOptions={{ color: pin.color, fillColor: pin.color, fillOpacity: 0.25, weight: 2 }}
           />
         ))}
       </MapContainer>

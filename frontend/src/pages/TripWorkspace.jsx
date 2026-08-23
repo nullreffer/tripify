@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTrip } from '../hooks/useTrip.js';
 import { getRoute, formatDistance, formatDuration } from '../services/routing.js';
 import { getSettings, useSettingsListener } from '../services/settings.js';
@@ -7,6 +7,7 @@ import { searchNearby } from '../services/geocoding.js';
 import { nearbySearch } from '../services/nearby.js';
 import { getWeather, buildCurrentWeather, buildScheduledDayWeather } from '../services/weather.js';
 import { getAqiStatus, getAqiForStop, aqiMeta, getActiveFires } from '../services/aqi.js';
+import { fetchKpForecast, auroraVisibility, AURORA_COLORS, kpLabel } from '../services/aurora.js';
 import TripMap from '../components/map/TripMap.jsx';
 import StopList from '../components/stops/StopList.jsx';
 import StopSheet from '../components/stops/StopSheet.jsx';
@@ -59,6 +60,7 @@ const MAP_LAYER_OPTIONS = [
   ['aqi', '🌫️ Air Quality'],
   ['gas', '⛽ Nearby Gas'],
   ['offline', '📵 Offline areas'],
+  ['aurora', '🌌 Aurora Borealis'],
 ];
 
 function resolveMapStyle(setting) {
@@ -127,6 +129,7 @@ function addRecentSearchTerm(term) {
 export default function TripWorkspace() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const tripData = useTrip(id);
   const { trip, stops, categories, references, days, reservations, loading, error, saveState, isOffline } = tripData;
 
@@ -187,6 +190,12 @@ export default function TripWorkspace() {
   const [slideshowOpen, setSlideshowOpen] = useState(false);
   const mapLayerRef = useRef(mapLayer);
   mapLayerRef.current = mapLayer;
+
+  // Aurora Borealis layer
+  const [auroraForecast, setAuroraForecast] = useState([]); // [{ time, kp }]
+  const [auroraSliderIdx, setAuroraSliderIdx] = useState(0);
+  const [auroraLoading, setAuroraLoading] = useState(false);
+  const [auroraError, setAuroraError] = useState(null);
 
   // Gas station pins loaded from Overpass API when gas layer is active
   const [gasPins, setGasPins] = useState([]);
@@ -410,7 +419,33 @@ export default function TripWorkspace() {
     return () => { cancelled = true; };
   }, [mapLayer, routeStops]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Map overlay handlers ─────────────────────────────────────────────
+  // ── Aurora Borealis data loading ─────────────────────────────────────────────
+  useEffect(() => {
+    if (mapLayer !== 'aurora') { setAuroraForecast([]); setAuroraError(null); return; }
+    let cancelled = false;
+    setAuroraLoading(true);
+    setAuroraError(null);
+    fetchKpForecast()
+      .then(forecast => {
+        if (cancelled) return;
+        setAuroraForecast(forecast);
+        setAuroraSliderIdx(0);
+        setAuroraLoading(false);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setAuroraError(err.message);
+        setAuroraLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [mapLayer]);
+
+  // ── Read URL view param on mount ─────────────────────────────────────────────
+  useEffect(() => {
+    const view = searchParams.get('view');
+    if (view === 'gallery') setActiveTab('gallery');
+    else if (view === 'slideshow') { setActiveTab('gallery'); setSlideshowOpen(true); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const handleMyLocation = useCallback(() => {
     if (userLocation) {
       mapRef.current?.flyToLocation(...userLocation);
@@ -806,6 +841,19 @@ export default function TripWorkspace() {
       pm10: entry.pm10,
     }));
   }, [mapLayer, aqiGridData]);
+
+  // Aurora pins — one per stop, coloured by visibility at the selected forecast time
+  const auroraSelectedEntry = auroraForecast[auroraSliderIdx] || null;
+  const auroraKp = auroraSelectedEntry?.kp ?? 0;
+  const auroraPins = useMemo(() => {
+    if (mapLayer !== 'aurora' || !auroraSelectedEntry) return [];
+    return routeStops.map(stop => {
+      const vis = auroraVisibility(stop.lat, auroraSelectedEntry.kp);
+      const color = AURORA_COLORS[vis];
+      if (!color) return null;
+      return { id: stop.id, lat: stop.lat, lng: stop.lng, color, visibility: vis, stopName: stop.name };
+    }).filter(Boolean);
+  }, [mapLayer, auroraSelectedEntry, routeStops]);
 
   // Build fire pins — only shown on the AQI layer.
   // When stops exist, limit to fires within a generous 1500 km radius of the trip centroid
@@ -1404,6 +1452,7 @@ export default function TripWorkspace() {
             onGasPinClick={pin => setSelectedGasPin(pin)}
             gasStatus={gasStatus}
             aqiStatus={aqiStatus}
+            auroraPins={auroraPins}
             onBoundsChange={handleBoundsChange}
             mapTileProvider={settings.mapTileProvider ?? 'stadia'}
           />
@@ -1520,6 +1569,47 @@ export default function TripWorkspace() {
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {/* ── Aurora Borealis slider ── */}
+          {mapLayer === 'aurora' && (
+            <div className="aurora-panel" style={{ bottom: mapOverlayBottom }}>
+              {auroraLoading && <div className="aurora-panel-status">🌌 Fetching NOAA forecast…</div>}
+              {auroraError && <div className="aurora-panel-status aurora-panel-error">⚠ {auroraError}</div>}
+              {!auroraLoading && !auroraError && auroraForecast.length > 0 && (
+                <>
+                  <div className="aurora-panel-header">
+                    <span className="aurora-panel-icon">🌌</span>
+                    <span className="aurora-panel-title">Aurora Borealis Forecast</span>
+                  </div>
+                  <div className="aurora-panel-kp">
+                    Kp {auroraKp.toFixed(1)} — {kpLabel(auroraKp)}
+                  </div>
+                  {auroraSelectedEntry && (
+                    <div className="aurora-panel-time">
+                      {auroraSelectedEntry.time.toLocaleString('en-US', {
+                        month: 'short', day: 'numeric',
+                        hour: 'numeric', hour12: true, timeZoneName: 'short',
+                      })}
+                    </div>
+                  )}
+                  <input
+                    type="range"
+                    className="aurora-slider"
+                    min={0}
+                    max={auroraForecast.length - 1}
+                    value={auroraSliderIdx}
+                    onChange={e => setAuroraSliderIdx(Number(e.target.value))}
+                    aria-label="Aurora forecast time"
+                  />
+                  <div className="aurora-legend">
+                    <span style={{ color: '#facc15' }}>● Possible</span>
+                    <span style={{ color: '#4ade80' }}>● Likely</span>
+                    <span style={{ color: '#7c3aed' }}>● Strong</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1840,9 +1930,21 @@ export default function TripWorkspace() {
                   onBack={() => setActiveTab('more')}
                   onOpenStop={stop => handleOpenStop(stop)}
                   onSlideshow={() => setSlideshowOpen(true)}
-                  onDeletePhoto={async (stop) => {
-                    const updatedMeta = { ...stop.metadata };
-                    delete updatedMeta.photo;
+                  onDeletePhoto={async (stop, photoIndex) => {
+                    const meta = stop.metadata || {};
+                    const photos = Array.isArray(meta.photos)
+                      ? meta.photos.filter((_, i) => i !== photoIndex)
+                      : [];
+                    const updatedMeta = { ...meta, photos, photo: photos[0] || null };
+                    await tripData.updateStop(stop.id, { metadata: updatedMeta });
+                  }}
+                  onAddPhoto={async (stop, dataUrl) => {
+                    const meta = stop.metadata || {};
+                    const existingPhotos = Array.isArray(meta.photos)
+                      ? meta.photos
+                      : (meta.photo ? [meta.photo] : []);
+                    const newPhotos = [...existingPhotos, dataUrl];
+                    const updatedMeta = { ...meta, photos: newPhotos, photo: newPhotos[0] };
                     await tripData.updateStop(stop.id, { metadata: updatedMeta });
                   }}
                 />
