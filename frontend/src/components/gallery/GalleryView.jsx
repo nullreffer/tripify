@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 // Compress an image File to base64 JPEG
 function compressImage(file, maxDim = 1200, quality = 0.82) {
@@ -43,10 +43,12 @@ function getStopPhotos(stop) {
  */
 export default function GalleryView({ stops, onBack, onOpenStop, onDeletePhoto, onAddPhoto, onSlideshow }) {
   // Build a flat list of all photos with stop + index info for the lightbox
-  const allPhotos = stops.flatMap(stop => {
-    const photos = getStopPhotos(stop);
-    return photos.map((url, photoIdx) => ({ stop, url, photoIdx }));
-  });
+  const allPhotos = useMemo(() =>
+    stops.flatMap(stop => {
+      const photos = getStopPhotos(stop);
+      return photos.map((url, photoIdx) => ({ stop, url, photoIdx }));
+    }),
+  [stops]);
 
   const [lightboxIdx, setLightboxIdx] = useState(null);
   const [deleting, setDeleting] = useState(false);

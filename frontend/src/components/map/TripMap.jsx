@@ -523,12 +523,10 @@ const TripMap = forwardRef(function TripMap(
     },
   };
   // AQI and gas layers use the normal base map + an overlay/pins on top.
-  // Aurora uses the dark map for a more atmospheric look.
-  const layer = (isAqiLayer || isGasLayer)
+  // Aurora uses the normal base map with colored circles on top.
+  const layer = (isAqiLayer || isGasLayer || isAuroraLayer)
     ? (tileLayerByMode.normal)
-    : isAuroraLayer
-      ? (tileLayerByMode.normal)
-      : (tileLayerByMode[mapLayer] || tileLayerByMode.normal);
+    : (tileLayerByMode[mapLayer] || tileLayerByMode.normal);
 
   const defaultCenter = stops.length > 0
     ? [stops[0].lat, stops[0].lng]

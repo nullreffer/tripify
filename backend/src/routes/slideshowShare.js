@@ -43,6 +43,14 @@ router.get('/:token', publicSlideshowLimit, async (req, res, next) => {
     }
 
     const GEMINI_KEY = process.env.GEMINI_API_KEY;
+    let geminiModel = null;
+    if (GEMINI_KEY) {
+      try {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(GEMINI_KEY);
+        geminiModel = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      } catch { /* Gemini unavailable */ }
+    }
 
     const slides = await Promise.all(photoStops.map(async (stop, idx) => {
       const meta = stop.metadata || {};
@@ -52,12 +60,8 @@ router.get('/:token', publicSlideshowLimit, async (req, res, next) => {
       let caption = stop.notes || null;
       let narrative = null;
 
-      if (GEMINI_KEY) {
+      if (geminiModel) {
         try {
-          const { GoogleGenerativeAI } = require('@google/generative-ai');
-          const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-          const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
           const stopContext = [
             `Trip: "${share.trip.title}"`,
             `Stop ${idx + 1} of ${photoStops.length}: ${stop.name}`,
@@ -68,7 +72,7 @@ router.get('/:token', publicSlideshowLimit, async (req, res, next) => {
 
           const prompt = `You are creating a travel photo caption for a slideshow. Based on the following stop information, write:\n1. A short, evocative one-sentence photo caption (max 100 chars)\n2. A 1-2 sentence narrative about this moment in the trip\n\nRespond in JSON: {"caption":"...","narrative":"..."}\n\n${stopContext}`;
 
-          const result = await model.generateContent(prompt);
+          const result = await geminiModel.generateContent(prompt);
           const text = result.response.text().trim();
           const jsonMatch = text.match(/\{[\s\S]*?\}/);
           if (jsonMatch) {
