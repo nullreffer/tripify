@@ -41,7 +41,7 @@ const ROLE_LABELS = {
   VIEWER: { label: 'Tagging Along', emoji: '👀' }
 };
 
-function TripCard({ trip, onInvite, onClick }) {
+function TripCard({ trip, onInvite, onClick, onSlideshow, onGallery }) {
   const role = trip.memberRole || 'OWNER';
   const roleInfo = ROLE_LABELS[role] || ROLE_LABELS.OWNER;
   const canInvite = role === 'OWNER' || role === 'PLANNER';
@@ -65,6 +65,26 @@ function TripCard({ trip, onInvite, onClick }) {
         <div className="trip-card-top">
           <h3 className="trip-card-title">{trip.title}</h3>
           <div className="trip-card-actions">
+            {onGallery && (
+              <button
+                className="invite-btn invite-btn-icon"
+                onClick={e => { e.stopPropagation(); onGallery(trip); }}
+                title="Open gallery"
+                aria-label="Open photo gallery"
+              >
+                🖼
+              </button>
+            )}
+            {onSlideshow && (
+              <button
+                className="invite-btn invite-btn-icon"
+                onClick={e => { e.stopPropagation(); onSlideshow(trip); }}
+                title="Open slideshow"
+                aria-label="Open slideshow"
+              >
+                🎞
+              </button>
+            )}
             {canInvite && (
               <button
                 className="invite-btn invite-btn-icon"

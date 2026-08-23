@@ -20,6 +20,9 @@ export default function SlideshowView({ tripId, stops = [], onBack }) {
   const [playing, setPlaying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [castAvailable, setCastAvailable] = useState(false);
+  const [shareUrl, setShareUrl] = useState(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const intervalRef = useRef(null);
   const castContextRef = useRef(null);
   const containerRef = useRef(null);
@@ -146,6 +149,42 @@ export default function SlideshowView({ tripId, stops = [], onBack }) {
     } catch { /* user cancelled or cast failed */ }
   }, [slides, current]);
 
+  const handleShare = useCallback(async () => {
+    if (!tripId) return;
+    setSharing(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/trips/${tripId}/slideshow/share`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to create share link');
+      const data = await res.json();
+      setShareUrl(data.shareUrl);
+    } catch {
+      // silently ignore — share button stays available
+    } finally {
+      setSharing(false);
+    }
+  }, [tripId]);
+
+  const handleCopyShareUrl = useCallback(() => {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    }).catch(() => {
+      // Fallback for browsers without clipboard API
+      const el = document.createElement('textarea');
+      el.value = shareUrl;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    });
+  }, [shareUrl]);
+
   // ── Render ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -188,7 +227,29 @@ export default function SlideshowView({ tripId, stops = [], onBack }) {
         <div className="slideshow-view-header">
           <button className="btn-ghost btn-sm" onClick={onBack}>← Back</button>
           <h3>Trip Slideshow</h3>
-          <span className="slideshow-view-count">{slides.length} stop{slides.length !== 1 ? 's' : ''}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="slideshow-view-count">{slides.length} stop{slides.length !== 1 ? 's' : ''}</span>
+            {tripId && (
+              <button
+                className="btn-ghost btn-sm"
+                onClick={shareUrl ? handleCopyShareUrl : handleShare}
+                disabled={sharing}
+                title={shareUrl ? 'Copy share link' : 'Share slideshow'}
+              >
+                {sharing ? '⏳' : shareUrl ? (shareCopied ? '✓ Copied!' : '🔗 Copy link') : '🔗 Share'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Share URL banner */}
+      {shareUrl && !fullscreen && (
+        <div className="slideshow-share-banner">
+          <span className="slideshow-share-url" title={shareUrl}>{shareUrl}</span>
+          <button className="btn-primary btn-sm" onClick={handleCopyShareUrl}>
+            {shareCopied ? '✓ Copied!' : 'Copy'}
+          </button>
         </div>
       )}
 

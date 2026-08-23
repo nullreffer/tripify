@@ -10,6 +10,7 @@ import AdminLayout from './pages/AdminLayout.jsx';
 import AdminReports from './pages/AdminReports.jsx';
 import AdminApprovals from './pages/AdminApprovals.jsx';
 import AdminHealth from './pages/AdminHealth.jsx';
+import SharedSlideshow from './pages/SharedSlideshow.jsx';
 import { getSettings, useSettingsListener } from './services/settings.js';
 
 // ── Google Analytics SPA page-view tracker ──────────────────────────────────
@@ -148,6 +149,7 @@ function App() {
             element={user ? (isApproved ? <Dashboard /> : <Navigate to="/pending" replace />) : <Navigate to="/login" replace />}
           />
           <Route path="/invite/:token" element={<InviteAccept />} />
+          <Route path="/slideshow/:token" element={<SharedSlideshow />} />
           <Route
             path="/trips/:id"
             element={user ? (isApproved ? <TripWorkspace /> : <Navigate to="/pending" replace />) : <Navigate to="/login" replace />}

@@ -3540,3 +3540,63 @@ body {
   background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--text-muted);
 }
 .navview-assistant-text { font-size: .9rem; color: var(--text); line-height: 1.5; }
+
+/* ── Aurora Borealis panel ─────────────────────────────────────────────────── */
+.aurora-panel {
+  position: absolute; left: 10px; z-index: 1000;
+  background: rgba(10,10,30,0.92); border-radius: 14px; padding: 12px 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5); min-width: 230px; max-width: 280px;
+  border: 1px solid rgba(124,58,237,0.4);
+}
+.aurora-panel-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.aurora-panel-icon { font-size: 1.1rem; }
+.aurora-panel-title { font-size: .85rem; font-weight: 700; color: #e2e8f0; }
+.aurora-panel-kp { font-size: .95rem; font-weight: 600; color: #c4b5fd; margin-bottom: 2px; }
+.aurora-panel-time { font-size: .75rem; color: #94a3b8; margin-bottom: 8px; }
+.aurora-panel-status { font-size: .8rem; color: #94a3b8; }
+.aurora-panel-error { color: #f87171; }
+.aurora-slider {
+  width: 100%; accent-color: #7c3aed; cursor: pointer; display: block; margin: 4px 0 8px;
+}
+.aurora-legend {
+  display: flex; gap: 10px; font-size: .75rem; color: #e2e8f0;
+}
+
+/* ── Slideshow share banner ────────────────────────────────────────────────── */
+.slideshow-share-banner {
+  display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+  background: var(--bg-alt, #f1f5f9); border-bottom: 1px solid var(--border, #e2e8f0);
+  flex-shrink: 0;
+}
+.slideshow-share-url {
+  flex: 1; font-size: .78rem; color: var(--text-muted, #64748b);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Gallery stop groups ───────────────────────────────────────────────────── */
+.gallery-stop-group { padding: 0 0 16px 0; }
+.gallery-stop-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px 8px; gap: 8px;
+}
+.gallery-stop-name { font-size: .9rem; font-weight: 600; color: var(--text, #1e293b); flex: 1; }
+.gallery-stop-count { font-size: .75rem; color: var(--text-muted, #64748b); }
+.gallery-stop-empty { font-size: .8rem; color: var(--text-muted, #64748b); padding: 0 16px 8px; margin: 0; }
+
+/* ── Shared slideshow page ─────────────────────────────────────────────────── */
+.shared-slideshow {
+  display: flex; flex-direction: column; height: 100vh; background: #0a0a1e; color: #fff;
+}
+.shared-slideshow-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; background: rgba(10,10,30,0.9); border-bottom: 1px solid rgba(255,255,255,0.1);
+  flex-shrink: 0;
+}
+.shared-slideshow-title { font-size: 1rem; font-weight: 700; }
+.shared-slideshow-count { font-size: .8rem; color: #94a3b8; }
+.shared-slideshow-loading,
+.shared-slideshow-error,
+.shared-slideshow-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; color: #94a3b8; font-size: .95rem;
+}
