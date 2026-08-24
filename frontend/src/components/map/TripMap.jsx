@@ -491,6 +491,7 @@ const TripMap = forwardRef(function TripMap(
     gasStatus = null,
     auroraPins = [],
     poiFilterPins = [],
+    onPoiFilterPinClick,
     mapTileProvider = 'stadia' },
   mapRef
 ) {
@@ -737,6 +738,7 @@ const TripMap = forwardRef(function TripMap(
             key={`pf-${pin.id}`}
             position={[pin.lat, pin.lng]}
             icon={makePoiFilterIcon(pin.emoji, pin.name)}
+            eventHandlers={onPoiFilterPinClick ? { click: () => onPoiFilterPinClick(pin) } : {}}
           />
         ))}
       </MapContainer>

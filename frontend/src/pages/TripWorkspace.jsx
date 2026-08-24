@@ -227,6 +227,7 @@ export default function TripWorkspace() {
   const [showPoiFilter, setShowPoiFilter] = useState(false);
   const [poiFilterCategories, setPoiFilterCategories] = useState(new Set());
   const [poiFilterPins, setPoiFilterPins] = useState([]);
+  const [selectedPoiFilterPin, setSelectedPoiFilterPin] = useState(null);
   const poiFilterDebounce = useRef(null);
   const poiFilterCategoriesRef = useRef(poiFilterCategories);
   poiFilterCategoriesRef.current = poiFilterCategories;
@@ -1004,6 +1005,52 @@ export default function TripWorkspace() {
 
   const ATTRACTIONS_TOP_N = settings.poiLimit ?? 10;
 
+  // ── Shared POI filter fetch helper ───────────────────────────────────────────
+  // Maps a raw Overpass element to a POI filter pin object.
+  const mapPoiFilterElement = useCallback((el) => {
+    const t = el.tags || {};
+    let emoji = '📍';
+    if (t.amenity === 'fuel') emoji = '⛽';
+    else if (t.amenity === 'restaurant') emoji = '🍽️';
+    else if (t.amenity === 'cafe') emoji = '☕';
+    else if (t.amenity === 'charging_station') emoji = '⚡';
+    else if (t.boundary === 'national_park') emoji = '🏞️';
+    else if (t.leisure === 'park') emoji = '🌳';
+    else if (t.highway === 'trailhead' || t.route === 'hiking') emoji = '🥾';
+    else if (t.shop === 'supermarket' || t.shop === 'grocery') emoji = '🛒';
+    return {
+      id: `pf-${el.type}-${el.id}`,
+      name: t.name || t.brand || emoji,
+      lat: el.lat ?? el.center?.lat,
+      lng: el.lon ?? el.center?.lon,
+      emoji,
+      tags: t,
+    };
+  }, []);
+
+  const doPoiFilterFetch = useCallback(async (bounds, cats) => {
+    const fs = bounds.getSouth().toFixed(4);
+    const fw = bounds.getWest().toFixed(4);
+    const fn = bounds.getNorth().toFixed(4);
+    const fe = bounds.getEast().toFixed(4);
+    try {
+      const options = POI_FILTER_OPTIONS.filter(o => cats.includes(o.key));
+      const allFragments = options.flatMap(o => o.fragments(fs, fw, fn, fe));
+      const query = `[out:json][timeout:20];(${allFragments.join('')});out center 150;`;
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, provider: 'overpass' }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const pins = (data.elements || []).map(mapPoiFilterElement).filter(p => p.lat != null && p.lng != null);
+      setPoiFilterPins(pins);
+    } catch { setPoiFilterPins([]); }
+  }, [mapPoiFilterElement]);
+
   // Clear POI pins whenever the user switches away from a layer that shows them
   useEffect(() => {
     if (!['normal', 'satellite'].includes(mapLayer)) {
@@ -1019,53 +1066,13 @@ export default function TripWorkspace() {
   useEffect(() => {
     const stored = currentBoundsRef.current;
     if (!stored) return;
-    const { bounds, zoom } = stored;
+    const { bounds } = stored;
     if (!['normal', 'satellite', 'trails'].includes(mapLayerRef.current)) return;
     clearTimeout(poiFilterDebounce.current);
     if (!poiFilterCategories.size) { setPoiFilterPins([]); return; }
-    poiFilterDebounce.current = setTimeout(async () => {
-      const cats = Array.from(poiFilterCategories);
-      const fs = bounds.getSouth().toFixed(4);
-      const fw = bounds.getWest().toFixed(4);
-      const fn = bounds.getNorth().toFixed(4);
-      const fe = bounds.getEast().toFixed(4);
-      try {
-        const options = POI_FILTER_OPTIONS.filter(o => cats.includes(o.key));
-        const allFragments = options.flatMap(o => o.fragments(fs, fw, fn, fe));
-        const query = `[out:json][timeout:20];(${allFragments.join('')});out center 150;`;
-        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ query, provider: 'overpass' }),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const pins = (data.elements || []).map(el => {
-          const t = el.tags || {};
-          let emoji = '📍';
-          if (t.amenity === 'fuel') emoji = '⛽';
-          else if (t.amenity === 'restaurant') emoji = '🍽️';
-          else if (t.amenity === 'cafe') emoji = '☕';
-          else if (t.amenity === 'charging_station') emoji = '⚡';
-          else if (t.boundary === 'national_park') emoji = '🏞️';
-          else if (t.leisure === 'park') emoji = '🌳';
-          else if (t.highway === 'trailhead' || t.route === 'hiking') emoji = '🥾';
-          else if (t.shop === 'supermarket' || t.shop === 'grocery') emoji = '🛒';
-          return {
-            id: `pf-${el.type}-${el.id}`,
-            name: t.name || t.brand || emoji,
-            lat: el.lat ?? el.center?.lat,
-            lng: el.lon ?? el.center?.lon,
-            emoji,
-            tags: t,
-          };
-        }).filter(p => p.lat != null && p.lng != null);
-        setPoiFilterPins(pins);
-      } catch { setPoiFilterPins([]); }
-    }, 500);
-  }, [poiFilterCategories]); // eslint-disable-line react-hooks/exhaustive-deps
+    const cats = Array.from(poiFilterCategories);
+    poiFilterDebounce.current = setTimeout(() => doPoiFilterFetch(bounds, cats), 500);
+  }, [poiFilterCategories, doPoiFilterFetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Score a POI element by importance (higher = more prominent)
   const attractionScore = (el) => {
@@ -1325,51 +1332,13 @@ export default function TripWorkspace() {
       setPoiFilterPins([]);
     } else {
       clearTimeout(poiFilterDebounce.current);
-      poiFilterDebounce.current = setTimeout(async () => {
+      poiFilterDebounce.current = setTimeout(() => {
         const cats = Array.from(poiFilterCategoriesRef.current);
         if (!cats.length) { setPoiFilterPins([]); return; }
-        const fs = bounds.getSouth().toFixed(4);
-        const fw = bounds.getWest().toFixed(4);
-        const fn = bounds.getNorth().toFixed(4);
-        const fe = bounds.getEast().toFixed(4);
-        try {
-          const options = POI_FILTER_OPTIONS.filter(o => cats.includes(o.key));
-          const allFragments = options.flatMap(o => o.fragments(fs, fw, fn, fe));
-          const query = `[out:json][timeout:20];(${allFragments.join('')});out center 150;`;
-          const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ query, provider: 'overpass' }),
-            signal: AbortSignal.timeout(15000),
-          });
-          if (!res.ok) return;
-          const data = await res.json();
-          const pins = (data.elements || []).map(el => {
-            const t = el.tags || {};
-            let emoji = '📍';
-            if (t.amenity === 'fuel') emoji = '⛽';
-            else if (t.amenity === 'restaurant') emoji = '🍽️';
-            else if (t.amenity === 'cafe') emoji = '☕';
-            else if (t.amenity === 'charging_station') emoji = '⚡';
-            else if (t.boundary === 'national_park') emoji = '🏞️';
-            else if (t.leisure === 'park') emoji = '🌳';
-            else if (t.highway === 'trailhead' || t.route === 'hiking') emoji = '🥾';
-            else if (t.shop === 'supermarket' || t.shop === 'grocery') emoji = '🛒';
-            return {
-              id: `pf-${el.type}-${el.id}`,
-              name: t.name || t.brand || emoji,
-              lat: el.lat ?? el.center?.lat,
-              lng: el.lon ?? el.center?.lon,
-              emoji,
-              tags: t,
-            };
-          }).filter(p => p.lat != null && p.lng != null);
-          setPoiFilterPins(pins);
-        } catch { setPoiFilterPins([]); }
+        doPoiFilterFetch(bounds, cats);
       }, 700);
     }
-  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, doPoiFilterFetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const prepareOffline = useCallback(async () => {
     try {
@@ -1599,6 +1568,7 @@ export default function TripWorkspace() {
             onBoundsChange={handleBoundsChange}
             mapTileProvider={settings.mapTileProvider ?? 'stadia'}
             poiFilterPins={poiFilterPins}
+            onPoiFilterPinClick={pin => setSelectedPoiFilterPin(pin)}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -2528,6 +2498,49 @@ export default function TripWorkspace() {
                         lat: selectedGasPin.lat,
                         lng: selectedGasPin.lng,
                         name: selectedGasPin.name || 'Gas Station',
+                      },
+                    });
+                  }}
+                >
+                  + Add as stop
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── POI filter pin detail sheet ── */}
+      {selectedPoiFilterPin && (
+        <div className="sheet-overlay" onClick={() => setSelectedPoiFilterPin(null)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-header">
+              <span className="sheet-title">{selectedPoiFilterPin.emoji} {selectedPoiFilterPin.name}</span>
+              <button className="sheet-close" onClick={() => setSelectedPoiFilterPin(null)}>✕</button>
+            </div>
+            <div className="sheet-body">
+              {selectedPoiFilterPin.tags?.['opening_hours'] && (
+                <div className="sheet-detail-row">⏰ {selectedPoiFilterPin.tags['opening_hours']}</div>
+              )}
+              {selectedPoiFilterPin.tags?.phone && (
+                <div className="sheet-detail-row">📞 <a href={`tel:${selectedPoiFilterPin.tags.phone}`}>{selectedPoiFilterPin.tags.phone}</a></div>
+              )}
+              {selectedPoiFilterPin.tags?.website && (
+                <div className="sheet-detail-row">🌐 <a href={selectedPoiFilterPin.tags.website} target="_blank" rel="noopener noreferrer">Website</a></div>
+              )}
+              <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+                📍 {selectedPoiFilterPin.lat.toFixed(5)}, {selectedPoiFilterPin.lng.toFixed(5)}
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button
+                  className="btn-primary btn-sm"
+                  onClick={() => {
+                    setSelectedPoiFilterPin(null);
+                    setShowSearch({
+                      prefill: {
+                        lat: selectedPoiFilterPin.lat,
+                        lng: selectedPoiFilterPin.lng,
+                        name: selectedPoiFilterPin.name,
                       },
                     });
                   }}
