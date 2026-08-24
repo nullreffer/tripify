@@ -7,7 +7,7 @@ import { searchNearby } from '../services/geocoding.js';
 import { nearbySearch } from '../services/nearby.js';
 import { getWeather, buildCurrentWeather, buildScheduledDayWeather } from '../services/weather.js';
 import { getAqiStatus, getAqiForStop, aqiMeta, getActiveFires } from '../services/aqi.js';
-import { fetchKpForecast, auroraVisibility, AURORA_COLORS, kpLabel } from '../services/aurora.js';
+import { fetchKpForecast, fetchKpForecast27Day, aggregateForecastByDay, auroraVisibility, AURORA_COLORS, kpLabel } from '../services/aurora.js';
 import TripMap from '../components/map/TripMap.jsx';
 import StopList from '../components/stops/StopList.jsx';
 import StopSheet from '../components/stops/StopSheet.jsx';
@@ -61,6 +61,19 @@ const MAP_LAYER_OPTIONS = [
   ['gas', '⛽ Nearby Gas'],
   ['offline', '📵 Offline areas'],
   ['aurora', '🌌 Aurora Borealis'],
+];
+
+// POI categories available in the map filter popup.
+// Each entry provides the Overpass query fragment(s) for that category.
+const POI_FILTER_OPTIONS = [
+  { key: 'gas',      label: 'Gas Stations',   emoji: '⛽', fragments: (s,w,n,e) => [`node["amenity"="fuel"](${s},${w},${n},${e});`] },
+  { key: 'food',     label: 'Restaurants',    emoji: '🍽️', fragments: (s,w,n,e) => [`node["amenity"="restaurant"](${s},${w},${n},${e});`] },
+  { key: 'coffee',   label: 'Coffee Shops',   emoji: '☕', fragments: (s,w,n,e) => [`node["amenity"="cafe"](${s},${w},${n},${e});`] },
+  { key: 'ev',       label: 'EV Chargers',    emoji: '⚡', fragments: (s,w,n,e) => [`node["amenity"="charging_station"](${s},${w},${n},${e});`] },
+  { key: 'natpark',  label: 'National Parks', emoji: '🏞️', fragments: (s,w,n,e) => [`node["boundary"="national_park"]["name"](${s},${w},${n},${e});`, `way["boundary"="national_park"]["name"](${s},${w},${n},${e});`] },
+  { key: 'parks',    label: 'Parks',          emoji: '🌳', fragments: (s,w,n,e) => [`node["leisure"="park"]["name"](${s},${w},${n},${e});`, `way["leisure"="park"]["name"](${s},${w},${n},${e});`] },
+  { key: 'trails',   label: 'Trails',         emoji: '🥾', fragments: (s,w,n,e) => [`node["highway"="trailhead"](${s},${w},${n},${e});`, `node["route"="hiking"]["name"](${s},${w},${n},${e});`] },
+  { key: 'grocery',  label: 'Grocery Stores', emoji: '🛒', fragments: (s,w,n,e) => [`node["shop"="supermarket"](${s},${w},${n},${e});`, `node["shop"="grocery"](${s},${w},${n},${e});`] },
 ];
 
 function resolveMapStyle(setting) {
@@ -181,6 +194,7 @@ export default function TripWorkspace() {
   const [selectedAttraction, setSelectedAttraction] = useState(null);
   const [attractionClusterSheet, setAttractionClusterSheet] = useState(null); // array of pins in tapped cluster
   const attractionDebounce = useRef(null);
+  const currentBoundsRef = useRef(null); // { bounds, zoom } — kept fresh for POI filter re-fetch
 
   // In-app navigation state
   const [navPreview, setNavPreview] = useState(null);   // { origin, destination } | null
@@ -196,6 +210,9 @@ export default function TripWorkspace() {
   const [auroraSliderIdx, setAuroraSliderIdx] = useState(0);
   const [auroraLoading, setAuroraLoading] = useState(false);
   const [auroraError, setAuroraError] = useState(null);
+  const [auroraView, setAuroraView] = useState('day'); // 'day' | 'week' | 'month'
+  const [aurora27Day, setAurora27Day] = useState([]); // [{ date, kp }]
+  const [aurora27Loading, setAurora27Loading] = useState(false);
 
   // Gas station pins loaded from Overpass API when gas layer is active
   const [gasPins, setGasPins] = useState([]);
@@ -205,6 +222,15 @@ export default function TripWorkspace() {
 
   // AQI layer status chip
   const [aqiStatus, setAqiStatus] = useState(null);
+
+  // POI filter (multi-select overlay for normal/satellite/trails layers)
+  const [showPoiFilter, setShowPoiFilter] = useState(false);
+  const [poiFilterCategories, setPoiFilterCategories] = useState(new Set());
+  const [poiFilterPins, setPoiFilterPins] = useState([]);
+  const [selectedPoiFilterPin, setSelectedPoiFilterPin] = useState(null);
+  const poiFilterDebounce = useRef(null);
+  const poiFilterCategoriesRef = useRef(poiFilterCategories);
+  poiFilterCategoriesRef.current = poiFilterCategories;
 
   // Navigation popup (my location + fit trip combined)
   const [showNavPopup, setShowNavPopup] = useState(false);
@@ -421,7 +447,7 @@ export default function TripWorkspace() {
 
   // ── Aurora Borealis data loading ─────────────────────────────────────────────
   useEffect(() => {
-    if (mapLayer !== 'aurora') { setAuroraForecast([]); setAuroraError(null); return; }
+    if (mapLayer !== 'aurora') { setAuroraForecast([]); setAuroraError(null); setAurora27Day([]); return; }
     let cancelled = false;
     setAuroraLoading(true);
     setAuroraError(null);
@@ -439,6 +465,17 @@ export default function TripWorkspace() {
       });
     return () => { cancelled = true; };
   }, [mapLayer]);
+
+  // ── Aurora 27-day data loading (only when month view is selected) ─────────────
+  useEffect(() => {
+    if (mapLayer !== 'aurora' || auroraView !== 'month') { setAurora27Day([]); return; }
+    let cancelled = false;
+    setAurora27Loading(true);
+    fetchKpForecast27Day()
+      .then(data => { if (!cancelled) { setAurora27Day(data); setAurora27Loading(false); } })
+      .catch(() => { if (!cancelled) setAurora27Loading(false); });
+    return () => { cancelled = true; };
+  }, [mapLayer, auroraView]);
 
   // ── Read URL view param on mount ─────────────────────────────────────────────
   useEffect(() => {
@@ -968,13 +1005,74 @@ export default function TripWorkspace() {
 
   const ATTRACTIONS_TOP_N = settings.poiLimit ?? 10;
 
+  // ── Shared POI filter fetch helper ───────────────────────────────────────────
+  // Maps a raw Overpass element to a POI filter pin object.
+  const mapPoiFilterElement = useCallback((el) => {
+    const t = el.tags || {};
+    let emoji = '📍';
+    if (t.amenity === 'fuel') emoji = '⛽';
+    else if (t.amenity === 'restaurant') emoji = '🍽️';
+    else if (t.amenity === 'cafe') emoji = '☕';
+    else if (t.amenity === 'charging_station') emoji = '⚡';
+    else if (t.boundary === 'national_park') emoji = '🏞️';
+    else if (t.leisure === 'park') emoji = '🌳';
+    else if (t.highway === 'trailhead' || t.route === 'hiking') emoji = '🥾';
+    else if (t.shop === 'supermarket' || t.shop === 'grocery') emoji = '🛒';
+    return {
+      id: `pf-${el.type}-${el.id}`,
+      name: t.name || t.brand || emoji,
+      lat: el.lat ?? el.center?.lat,
+      lng: el.lon ?? el.center?.lon,
+      emoji,
+      tags: t,
+    };
+  }, []);
+
+  const doPoiFilterFetch = useCallback(async (bounds, cats) => {
+    const fs = bounds.getSouth().toFixed(4);
+    const fw = bounds.getWest().toFixed(4);
+    const fn = bounds.getNorth().toFixed(4);
+    const fe = bounds.getEast().toFixed(4);
+    try {
+      const options = POI_FILTER_OPTIONS.filter(o => cats.includes(o.key));
+      const allFragments = options.flatMap(o => o.fragments(fs, fw, fn, fe));
+      const query = `[out:json][timeout:20];(${allFragments.join('')});out center 150;`;
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ query, provider: 'overpass' }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const pins = (data.elements || []).map(mapPoiFilterElement).filter(p => p.lat != null && p.lng != null);
+      setPoiFilterPins(pins);
+    } catch { setPoiFilterPins([]); }
+  }, [mapPoiFilterElement]);
+
   // Clear POI pins whenever the user switches away from a layer that shows them
   useEffect(() => {
     if (!['normal', 'satellite'].includes(mapLayer)) {
       setAttractionPins([]);
       setAttractionStatus(null);
     }
+    if (!['normal', 'satellite', 'trails'].includes(mapLayer)) {
+      setPoiFilterPins([]);
+    }
   }, [mapLayer]);
+
+  // Re-fetch POI filter pins when selected categories change
+  useEffect(() => {
+    const stored = currentBoundsRef.current;
+    if (!stored) return;
+    const { bounds } = stored;
+    if (!['normal', 'satellite', 'trails'].includes(mapLayerRef.current)) return;
+    clearTimeout(poiFilterDebounce.current);
+    if (!poiFilterCategories.size) { setPoiFilterPins([]); return; }
+    const cats = Array.from(poiFilterCategories);
+    poiFilterDebounce.current = setTimeout(() => doPoiFilterFetch(bounds, cats), 500);
+  }, [poiFilterCategories, doPoiFilterFetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Score a POI element by importance (higher = more prominent)
   const attractionScore = (el) => {
@@ -999,7 +1097,8 @@ export default function TripWorkspace() {
     if (activeTab !== 'map') return;
     const currentLayer = mapLayerRef.current;
 
-    // ── Gas layer: load gas stations from Overpass ──────────────────────────
+    // Track bounds for POI filter re-fetch when categories change
+    currentBoundsRef.current = { bounds, zoom };
     if (currentLayer === 'gas') {
       setAttractionPins([]);
       setAttractionStatus(null);
@@ -1108,8 +1207,7 @@ export default function TripWorkspace() {
     if (!['normal', 'satellite'].includes(currentLayer)) {
       setAttractionPins([]);
       setAttractionStatus(null);
-      return;
-    }
+    } else {
     clearTimeout(attractionDebounce.current);
     attractionDebounce.current = setTimeout(async () => {
       const s = bounds.getSouth().toFixed(4);
@@ -1226,7 +1324,21 @@ export default function TripWorkspace() {
         setAttractionStatus('⭐ POI: failed');
       }
     }, 600);
-  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+    } // end else (attraction layer)
+
+    // ── POI filter pins (multi-select, shown on normal/satellite/trails) ──────
+    if (!['normal', 'satellite', 'trails'].includes(currentLayer)) {
+      clearTimeout(poiFilterDebounce.current);
+      setPoiFilterPins([]);
+    } else {
+      clearTimeout(poiFilterDebounce.current);
+      poiFilterDebounce.current = setTimeout(() => {
+        const cats = Array.from(poiFilterCategoriesRef.current);
+        if (!cats.length) { setPoiFilterPins([]); return; }
+        doPoiFilterFetch(bounds, cats);
+      }, 700);
+    }
+  }, [activeTab, doPoiFilterFetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const prepareOffline = useCallback(async () => {
     try {
@@ -1455,6 +1567,8 @@ export default function TripWorkspace() {
             auroraPins={auroraPins}
             onBoundsChange={handleBoundsChange}
             mapTileProvider={settings.mapTileProvider ?? 'stadia'}
+            poiFilterPins={poiFilterPins}
+            onPoiFilterPinClick={pin => setSelectedPoiFilterPin(pin)}
           />
 
           {/* ── Map overlay control buttons ── */}
@@ -1466,7 +1580,7 @@ export default function TripWorkspace() {
             <button
               className={`map-ctrl-btn${showNavPopup ? ' map-ctrl-active' : ''}`}
               title="Navigate"
-              onClick={() => { setShowNavPopup(prev => !prev); setShowMapFilters(false); setShowMapLayers(false); setShowTrailsPicker(false); }}
+              onClick={() => { setShowNavPopup(prev => !prev); setShowMapFilters(false); setShowMapLayers(false); setShowTrailsPicker(false); setShowPoiFilter(false); }}
             >
               <span className="map-ctrl-icon">◎</span>
             </button>
@@ -1474,7 +1588,7 @@ export default function TripWorkspace() {
               <button
                 className={`map-ctrl-btn${showMapFilters ? ' map-ctrl-active' : ''}`}
                 title="Filters"
-                onClick={() => { setShowMapFilters(prev => !prev); setShowNavPopup(false); setShowMapLayers(false); setShowTrailsPicker(false); }}
+                onClick={() => { setShowMapFilters(prev => !prev); setShowNavPopup(false); setShowMapLayers(false); setShowTrailsPicker(false); setShowPoiFilter(false); }}
               >
                 <span className="map-ctrl-icon">⚙️</span>
               </button>
@@ -1482,10 +1596,19 @@ export default function TripWorkspace() {
             <button
               className={`map-ctrl-btn${showMapLayers ? ' map-ctrl-active' : ''}`}
               title="Map layers"
-              onClick={() => { setShowMapLayers(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowTrailsPicker(false); }}
+              onClick={() => { setShowMapLayers(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowTrailsPicker(false); setShowPoiFilter(false); }}
             >
               <span className="map-ctrl-icon">🛰️</span>
             </button>
+            {['normal', 'satellite', 'trails'].includes(mapLayer) && (
+              <button
+                className={`map-ctrl-btn${showPoiFilter ? ' map-ctrl-active' : ''}${poiFilterCategories.size > 0 ? ' map-ctrl-badge' : ''}`}
+                title="POI filter"
+                onClick={() => { setShowPoiFilter(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowMapLayers(false); setShowTrailsPicker(false); }}
+              >
+                <span className="map-ctrl-icon">🔎</span>
+              </button>
+            )}
             <button
               className={`map-ctrl-btn map-ctrl-search${mapSearchMode ? ' map-ctrl-active' : ''}`}
               title={mapSearchMode ? 'Exit search' : 'Search this area'}
@@ -1496,7 +1619,7 @@ export default function TripWorkspace() {
             <button
               className={`map-ctrl-btn map-ctrl-trails${showTrailsPicker ? ' map-ctrl-active' : ''}`}
               title="Find trails"
-              onClick={() => { setShowTrailsPicker(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowMapLayers(false); }}
+              onClick={() => { setShowTrailsPicker(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowMapLayers(false); setShowPoiFilter(false); }}
             >
               <span className="map-ctrl-icon">🥾</span>
             </button>
@@ -1572,6 +1695,44 @@ export default function TripWorkspace() {
             </div>
           )}
 
+          {/* ── POI filter popup ── */}
+          {showPoiFilter && ['normal', 'satellite', 'trails'].includes(mapLayer) && (
+            <div className="ws-map-filter-menu poi-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
+              <div className="poi-filter-header">
+                <span>POI Filter</span>
+                {poiFilterCategories.size > 0 && (
+                  <button
+                    className="poi-filter-clear"
+                    onClick={() => setPoiFilterCategories(new Set())}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {POI_FILTER_OPTIONS.map(opt => {
+                const active = poiFilterCategories.has(opt.key);
+                return (
+                  <button
+                    key={opt.key}
+                    className={`map-filter-menu-btn poi-filter-btn${active ? ' active' : ''}`}
+                    onClick={() => {
+                      setPoiFilterCategories(prev => {
+                        const next = new Set(prev);
+                        if (next.has(opt.key)) next.delete(opt.key);
+                        else next.add(opt.key);
+                        return next;
+                      });
+                    }}
+                  >
+                    <span>{opt.emoji}</span>
+                    <span>{opt.label}</span>
+                    {active && <span className="poi-filter-check">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* ── Aurora Borealis slider ── */}
           {mapLayer === 'aurora' && (
             <div className="aurora-panel" style={{ bottom: mapOverlayBottom }}>
@@ -1583,26 +1744,81 @@ export default function TripWorkspace() {
                     <span className="aurora-panel-icon">🌌</span>
                     <span className="aurora-panel-title">Aurora Borealis Forecast</span>
                   </div>
-                  <div className="aurora-panel-kp">
-                    Kp {auroraKp.toFixed(1)} — {kpLabel(auroraKp)}
+                  {/* View tabs */}
+                  <div className="aurora-view-tabs">
+                    {[['day', '3-Day'], ['week', 'Weekly'], ['month', '27-Day']].map(([v, label]) => (
+                      <button
+                        key={v}
+                        className={`aurora-view-tab${auroraView === v ? ' active' : ''}`}
+                        onClick={() => setAuroraView(v)}
+                      >{label}</button>
+                    ))}
                   </div>
-                  {auroraSelectedEntry && (
-                    <div className="aurora-panel-time">
-                      {auroraSelectedEntry.time.toLocaleString('en-US', {
-                        month: 'short', day: 'numeric',
-                        hour: 'numeric', hour12: true, timeZoneName: 'short',
-                      })}
+
+                  {/* Day view: hourly slider */}
+                  {auroraView === 'day' && (
+                    <>
+                      <div className="aurora-panel-kp">
+                        Kp {auroraKp.toFixed(1)} — {kpLabel(auroraKp)}
+                      </div>
+                      {auroraSelectedEntry && (
+                        <div className="aurora-panel-time">
+                          {auroraSelectedEntry.time.toLocaleString('en-US', {
+                            month: 'short', day: 'numeric',
+                            hour: 'numeric', hour12: true, timeZoneName: 'short',
+                          })}
+                        </div>
+                      )}
+                      <input
+                        type="range"
+                        className="aurora-slider"
+                        min={0}
+                        max={auroraForecast.length - 1}
+                        value={auroraSliderIdx}
+                        onChange={e => setAuroraSliderIdx(Number(e.target.value))}
+                        aria-label="Aurora forecast time"
+                      />
+                    </>
+                  )}
+
+                  {/* Week view: daily max Kp from 3-day forecast */}
+                  {auroraView === 'week' && (
+                    <div className="aurora-daily-list">
+                      {aggregateForecastByDay(auroraForecast).map(entry => (
+                        <div key={entry.date.toISOString()} className="aurora-daily-row">
+                          <span className="aurora-daily-date">
+                            {entry.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                          </span>
+                          <span className="aurora-daily-kp" style={{ color: entry.kp >= 5 ? '#7c3aed' : entry.kp >= 3 ? '#4ade80' : '#94a3b8' }}>
+                            Kp {entry.kp.toFixed(0)}
+                          </span>
+                          <span className="aurora-daily-label">{kpLabel(entry.kp)}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
-                  <input
-                    type="range"
-                    className="aurora-slider"
-                    min={0}
-                    max={auroraForecast.length - 1}
-                    value={auroraSliderIdx}
-                    onChange={e => setAuroraSliderIdx(Number(e.target.value))}
-                    aria-label="Aurora forecast time"
-                  />
+
+                  {/* Month view: 27-day NOAA outlook */}
+                  {auroraView === 'month' && (
+                    <div className="aurora-daily-list">
+                      {aurora27Loading && <div className="aurora-panel-status">Fetching 27-day outlook…</div>}
+                      {!aurora27Loading && aurora27Day.length === 0 && (
+                        <div className="aurora-panel-status">27-day data unavailable</div>
+                      )}
+                      {!aurora27Loading && aurora27Day.map(entry => (
+                        <div key={entry.date.toISOString()} className="aurora-daily-row">
+                          <span className="aurora-daily-date">
+                            {entry.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                          </span>
+                          <span className="aurora-daily-kp" style={{ color: entry.kp >= 5 ? '#7c3aed' : entry.kp >= 3 ? '#4ade80' : '#94a3b8' }}>
+                            Kp {entry.kp}
+                          </span>
+                          <span className="aurora-daily-label">{kpLabel(entry.kp)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="aurora-legend">
                     <span style={{ color: '#facc15' }}>● Possible</span>
                     <span style={{ color: '#4ade80' }}>● Likely</span>
@@ -2282,6 +2498,49 @@ export default function TripWorkspace() {
                         lat: selectedGasPin.lat,
                         lng: selectedGasPin.lng,
                         name: selectedGasPin.name || 'Gas Station',
+                      },
+                    });
+                  }}
+                >
+                  + Add as stop
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── POI filter pin detail sheet ── */}
+      {selectedPoiFilterPin && (
+        <div className="sheet-overlay" onClick={() => setSelectedPoiFilterPin(null)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-header">
+              <span className="sheet-title">{selectedPoiFilterPin.emoji} {selectedPoiFilterPin.name}</span>
+              <button className="sheet-close" onClick={() => setSelectedPoiFilterPin(null)}>✕</button>
+            </div>
+            <div className="sheet-body">
+              {selectedPoiFilterPin.tags?.['opening_hours'] && (
+                <div className="sheet-detail-row">⏰ {selectedPoiFilterPin.tags['opening_hours']}</div>
+              )}
+              {selectedPoiFilterPin.tags?.phone && (
+                <div className="sheet-detail-row">📞 <a href={`tel:${selectedPoiFilterPin.tags.phone}`}>{selectedPoiFilterPin.tags.phone}</a></div>
+              )}
+              {selectedPoiFilterPin.tags?.website && (
+                <div className="sheet-detail-row">🌐 <a href={selectedPoiFilterPin.tags.website} target="_blank" rel="noopener noreferrer">Website</a></div>
+              )}
+              <div className="sheet-detail-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+                📍 {selectedPoiFilterPin.lat.toFixed(5)}, {selectedPoiFilterPin.lng.toFixed(5)}
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button
+                  className="btn-primary btn-sm"
+                  onClick={() => {
+                    setSelectedPoiFilterPin(null);
+                    setShowSearch({
+                      prefill: {
+                        lat: selectedPoiFilterPin.lat,
+                        lng: selectedPoiFilterPin.lng,
+                        name: selectedPoiFilterPin.name,
                       },
                     });
                   }}

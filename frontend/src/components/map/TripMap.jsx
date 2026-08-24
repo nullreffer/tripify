@@ -168,6 +168,37 @@ function makeAttractionIcon(name) {
   return L.divIcon({ html, className: '', iconSize: [30, 46], iconAnchor: [15, 30], popupAnchor: [0, -32] });
 }
 
+function makePoiFilterIcon(emoji, name) {
+  const rawLabel = name ? name.slice(0, 22) : '';
+  const label = rawLabel
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+  const html = `<div style="
+    position:relative;
+    display:flex;flex-direction:column;align-items:center;
+    pointer-events:auto;
+  ">
+    <div style="
+      width:30px;height:30px;border-radius:50%;
+      background:#0ea5e9;border:2.5px solid #fff;
+      box-shadow:0 2px 8px rgba(0,0,0,.35);
+      display:flex;align-items:center;justify-content:center;
+      font-size:15px;
+    ">${emoji}</div>
+    ${label ? `<div style="
+      margin-top:2px;background:rgba(15,23,42,0.85);color:#fff;
+      font-size:9px;font-weight:600;border-radius:4px;padding:1px 4px;
+      white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;
+      border:1px solid rgba(255,255,255,0.2);
+    ">${label}</div>` : ''}
+  </div>`;
+  return L.divIcon({ html, className: '', iconSize: [30, 46], iconAnchor: [15, 30], popupAnchor: [0, -32] });
+}
+
+
 // Reports map bounds + zoom to parent whenever the user pans or zooms
 function MapBoundsTracker({ onBoundsChange }) {
   const map = useMap();
@@ -459,6 +490,8 @@ const TripMap = forwardRef(function TripMap(
     gasPins = [], onGasPinClick,
     gasStatus = null,
     auroraPins = [],
+    poiFilterPins = [],
+    onPoiFilterPinClick,
     mapTileProvider = 'stadia' },
   mapRef
 ) {
@@ -696,6 +729,16 @@ const TripMap = forwardRef(function TripMap(
             center={[pin.lat, pin.lng]}
             radius={150000}
             pathOptions={{ color: pin.color, fillColor: pin.color, fillOpacity: 0.25, weight: 2 }}
+          />
+        ))}
+
+        {/* POI filter pins (multi-select overlay, shown on normal/satellite/trails) */}
+        {poiFilterPins.map(pin => (
+          <Marker
+            key={`pf-${pin.id}`}
+            position={[pin.lat, pin.lng]}
+            icon={makePoiFilterIcon(pin.emoji, pin.name)}
+            eventHandlers={onPoiFilterPinClick ? { click: () => onPoiFilterPinClick(pin) } : {}}
           />
         ))}
       </MapContainer>

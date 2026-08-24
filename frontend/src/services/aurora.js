@@ -20,6 +20,9 @@
 const SWPC_URL =
   'https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json';
 
+const SWPC_27DAY_URL =
+  'https://services.swpc.noaa.gov/text/27-day-outlook.txt';
+
 /**
  * Fetch the 3-day Kp forecast from NOAA SWPC.
  * Returns an array of { time: Date, kp: number } objects sorted by time.
@@ -72,6 +75,49 @@ export const AURORA_COLORS = {
   likely: '#4ade80',     // green
   strong: '#7c3aed',     // purple
 };
+
+/**
+ * Fetch the NOAA 27-day space weather outlook and return an array of
+ * { date: Date, kp: number } objects (one per calendar day).
+ * Falls back to an empty array on error.
+ */
+export async function fetchKpForecast27Day() {
+  try {
+    const res = await fetch(SWPC_27DAY_URL, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return [];
+    const text = await res.text();
+    const rows = [];
+    for (const line of text.split('\n')) {
+      // Data lines look like:  2026-08-24         145          5         3
+      // Columns: Date, Radio Flux, Planetary A Index, Largest Kp Index
+      const match = line.match(/^(\d{4}-\d{2}-\d{2})\s+\d+\s+\d+\s+(\d+)/);
+      if (match) {
+        const date = new Date(match[1] + 'T12:00:00Z');
+        const kp = parseInt(match[2], 10);
+        if (!isNaN(date.getTime()) && !isNaN(kp)) rows.push({ date, kp });
+      }
+    }
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Aggregate a Kp forecast array (from fetchKpForecast) into daily buckets.
+ * Returns an array of { date: Date, kp: number } with the max Kp per day.
+ */
+export function aggregateForecastByDay(forecast) {
+  const dayMap = new Map();
+  for (const entry of forecast) {
+    const key = entry.time.toISOString().slice(0, 10);
+    const existing = dayMap.get(key);
+    if (!existing || entry.kp > existing.kp) {
+      dayMap.set(key, { date: new Date(key + 'T12:00:00Z'), kp: entry.kp });
+    }
+  }
+  return [...dayMap.values()].sort((a, b) => a.date - b.date);
+}
 
 /**
  * Return a descriptive label for a Kp value.

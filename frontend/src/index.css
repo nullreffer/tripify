@@ -205,7 +205,7 @@ body {
 .logo-icon { font-size: 1.4rem; }
 
 .logo-img {
-  height: 32px;
+  height: 40px;
   width: auto;
   flex-shrink: 0;
 }
@@ -3561,6 +3561,45 @@ body {
 .aurora-legend {
   display: flex; gap: 10px; font-size: .75rem; color: #e2e8f0;
 }
+.aurora-view-tabs {
+  display: flex; gap: 4px; margin: 6px 0 8px;
+}
+.aurora-view-tab {
+  flex: 1; padding: 4px 6px; border-radius: 8px; border: 1px solid rgba(124,58,237,0.4);
+  background: transparent; color: #94a3b8; font-size: .75rem; cursor: pointer;
+}
+.aurora-view-tab.active {
+  background: rgba(124,58,237,0.3); color: #e2e8f0; border-color: #7c3aed;
+}
+.aurora-daily-list {
+  max-height: 200px; overflow-y: auto; margin: 4px 0 8px; display: flex; flex-direction: column; gap: 4px;
+}
+.aurora-daily-row {
+  display: flex; align-items: center; gap: 6px; font-size: .78rem;
+}
+.aurora-daily-date { color: #94a3b8; flex-shrink: 0; min-width: 80px; }
+.aurora-daily-kp { font-weight: 700; flex-shrink: 0; min-width: 42px; }
+.aurora-daily-label { color: #cbd5e1; font-size: .72rem; }
+
+/* ── POI filter popup ─────────────────────────────────────────────────────── */
+.poi-filter-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 0 6px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 4px;
+  font-size: .8rem; font-weight: 700; color: var(--text);
+}
+.poi-filter-clear {
+  font-size: .72rem; color: #94a3b8; background: none; border: none; cursor: pointer; padding: 0;
+}
+.poi-filter-clear:hover { color: #f87171; }
+.poi-filter-btn { justify-content: flex-start !important; gap: 8px; }
+.poi-filter-check { margin-left: auto; color: #22c55e; font-size: .85rem; }
+.map-ctrl-badge { position: relative; }
+.map-ctrl-badge::after {
+  content: ''; position: absolute; top: 4px; right: 4px;
+  width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
+  border: 1.5px solid var(--bg, #fff);
+}
+
 
 /* ── Slideshow share banner ────────────────────────────────────────────────── */
 .slideshow-share-banner {
