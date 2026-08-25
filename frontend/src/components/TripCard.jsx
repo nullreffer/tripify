@@ -64,10 +64,10 @@ function TripCard({ trip, onInvite, onClick, onSlideshow, onGallery }) {
       />
       <div className="trip-card-body">
         <div className="trip-card-top">
-        <h3 className="trip-card-title">
-          {trip.title}
-          {isComplete && <span className="trip-complete-badge" title="All stops reached">✓ Complete</span>}
-        </h3>
+          <h3 className="trip-card-title">
+            {trip.title}
+            {isComplete && <span className="trip-complete-badge" title="All stops reached">✓ Complete</span>}
+          </h3>
           <div className="trip-card-actions">
             {onGallery && (
               <button

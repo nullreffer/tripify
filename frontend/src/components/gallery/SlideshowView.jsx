@@ -27,24 +27,16 @@ export default function SlideshowView({ tripId, stops = [], onBack }) {
   const castContextRef = useRef(null);
   const containerRef = useRef(null);
 
-  // ── Load slides ─────────────────────────────────────────────────────────
-  useEffect(() => {
+  const cacheKey = tripId ? `azitrip-slideshow-${tripId}` : null;
+
+  // Fetch slides from the API and cache the result
+  const fetchAndCacheSlides = useCallback(() => {
     if (!tripId) return;
-
-    // Try localStorage cache first
-    const cacheKey = `azitrip-slideshow-${tripId}`;
-    try {
-      const cached = JSON.parse(localStorage.getItem(cacheKey));
-      if (cached?.slides?.length) {
-        // Restore dates
-        const slides = cached.slides.map(s => ({ ...s, date: s.date ? new Date(s.date) : null }));
-        setSlides(slides);
-        setLoading(false);
-        return;
-      }
-    } catch { /* ignore */ }
-
+    if (cacheKey) {
+      try { localStorage.removeItem(cacheKey); } catch { /* ignore */ }
+    }
     setLoading(true);
+    setError(null);
     fetch(`${API_BASE}/api/trips/${tripId}/slideshow`, {
       method: 'POST',
       credentials: 'include',
@@ -68,12 +60,32 @@ export default function SlideshowView({ tripId, stops = [], onBack }) {
           setSlides(fallback);
         } else {
           setSlides(data.slides);
-          // Cache the response
-          try { localStorage.setItem(cacheKey, JSON.stringify({ slides: data.slides, cachedAt: Date.now() })); } catch { /* storage full */ }
+          if (cacheKey) {
+            try { localStorage.setItem(cacheKey, JSON.stringify({ slides: data.slides, cachedAt: Date.now() })); } catch { /* storage full */ }
+          }
         }
         setLoading(false);
       })
       .catch(err => { setError(err.message); setLoading(false); });
+  }, [tripId, cacheKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load slides ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!tripId) return;
+
+    // Try localStorage cache first
+    if (cacheKey) {
+      try {
+        const cached = JSON.parse(localStorage.getItem(cacheKey));
+        if (cached?.slides?.length) {
+          setSlides(cached.slides);
+          setLoading(false);
+          return;
+        }
+      } catch { /* ignore */ }
+    }
+
+    fetchAndCacheSlides();
   }, [tripId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-play ────────────────────────────────────────────────────────────
@@ -249,26 +261,7 @@ export default function SlideshowView({ tripId, stops = [], onBack }) {
               <button
                 className="btn-ghost btn-sm"
                 title="Regenerate slideshow"
-                onClick={() => {
-                  try { localStorage.removeItem(`azitrip-slideshow-${tripId}`); } catch { /* ignore */ }
-                  setSlides(null);
-                  setLoading(true);
-                  setError(null);
-                  fetch(`${API_BASE}/api/trips/${tripId}/slideshow`, {
-                    method: 'POST', credentials: 'include', signal: AbortSignal.timeout(30000),
-                  })
-                    .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed')))
-                    .then(data => {
-                      if (data.slides?.length) {
-                        setSlides(data.slides);
-                        try { localStorage.setItem(`azitrip-slideshow-${tripId}`, JSON.stringify({ slides: data.slides, cachedAt: Date.now() })); } catch { /* ignore */ }
-                      } else {
-                        setSlides([]);
-                      }
-                      setLoading(false);
-                    })
-                    .catch(err => { setError(err.message); setLoading(false); });
-                }}
+                onClick={fetchAndCacheSlides}
               >
                 🔄
               </button>
