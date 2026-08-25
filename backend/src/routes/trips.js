@@ -47,7 +47,13 @@ router.get('/', async (req, res, next) => {
     const format = (t, role) => {
       // Exclude saved-for-later stops from the completion calculation — only
       // route stops can be marked reached, so the denominator must match.
-      const routeStops = t.stops.filter(s => !s.metadata?.savedForLater);
+      // Prisma returns Json fields as objects, but guard against raw strings just in case.
+      const parseMeta = (m) => {
+        if (!m) return null;
+        if (typeof m === 'string') { try { return JSON.parse(m); } catch { return null; } }
+        return m;
+      };
+      const routeStops = t.stops.filter(s => !parseMeta(s.metadata)?.savedForLater);
       return {
         id: t.id,
         title: t.title,
