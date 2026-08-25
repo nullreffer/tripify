@@ -58,7 +58,6 @@ const MAP_LAYER_OPTIONS = [
   ['weather-current', '🌤️ Current weather'],
   ['weather-scheduled', '🗓️ Scheduled-day weather'],
   ['aqi', '🌫️ Air Quality'],
-  ['gas', '⛽ Nearby Gas'],
   ['offline', '📵 Offline areas'],
   ['aurora', '🌌 Aurora Borealis'],
 ];
@@ -223,14 +222,32 @@ export default function TripWorkspace() {
   // AQI layer status chip
   const [aqiStatus, setAqiStatus] = useState(null);
 
-  // POI filter (multi-select overlay for normal/satellite/trails layers)
+  // POI filter (multi-select overlay for all map layers)
   const [showPoiFilter, setShowPoiFilter] = useState(false);
-  const [poiFilterCategories, setPoiFilterCategories] = useState(new Set());
+  const poiCacheKey = `azitrip-poi-filter-${id}`;
+  const [poiFilterCategories, setPoiFilterCategories] = useState(() => {
+    try {
+      const saved = localStorage.getItem(poiCacheKey);
+      if (saved) return new Set(JSON.parse(saved));
+    } catch { /* ignore */ }
+    // Default: all categories selected
+    return new Set(POI_FILTER_OPTIONS.map(o => o.key));
+  });
   const [poiFilterPins, setPoiFilterPins] = useState([]);
   const [selectedPoiFilterPin, setSelectedPoiFilterPin] = useState(null);
   const poiFilterDebounce = useRef(null);
   const poiFilterCategoriesRef = useRef(poiFilterCategories);
   poiFilterCategoriesRef.current = poiFilterCategories;
+
+  // ── More menu (combines AllTrails + photo) ─────────────────────────────────
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  // Persist POI filter categories to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(poiCacheKey, JSON.stringify(Array.from(poiFilterCategories)));
+    } catch { /* ignore */ }
+  }, [poiFilterCategories, poiCacheKey]);
 
   // Navigation popup (my location + fit trip combined)
   const [showNavPopup, setShowNavPopup] = useState(false);
@@ -885,6 +902,7 @@ export default function TripWorkspace() {
   const auroraPins = useMemo(() => {
     if (mapLayer !== 'aurora' || !auroraSelectedEntry) return [];
     return routeStops.map(stop => {
+      if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return null;
       const vis = auroraVisibility(stop.lat, auroraSelectedEntry.kp);
       const color = AURORA_COLORS[vis];
       if (!color) return null;
@@ -1010,20 +1028,22 @@ export default function TripWorkspace() {
   const mapPoiFilterElement = useCallback((el) => {
     const t = el.tags || {};
     let emoji = '📍';
-    if (t.amenity === 'fuel') emoji = '⛽';
-    else if (t.amenity === 'restaurant') emoji = '🍽️';
-    else if (t.amenity === 'cafe') emoji = '☕';
-    else if (t.amenity === 'charging_station') emoji = '⚡';
-    else if (t.boundary === 'national_park') emoji = '🏞️';
-    else if (t.leisure === 'park') emoji = '🌳';
-    else if (t.highway === 'trailhead' || t.route === 'hiking') emoji = '🥾';
-    else if (t.shop === 'supermarket' || t.shop === 'grocery') emoji = '🛒';
+    let category = null;
+    if (t.amenity === 'fuel') { emoji = '⛽'; category = 'gas'; }
+    else if (t.amenity === 'restaurant') { emoji = '🍽️'; category = 'food'; }
+    else if (t.amenity === 'cafe') { emoji = '☕'; category = 'coffee'; }
+    else if (t.amenity === 'charging_station') { emoji = '⚡'; category = 'ev'; }
+    else if (t.boundary === 'national_park') { emoji = '🏞️'; category = 'natpark'; }
+    else if (t.leisure === 'park') { emoji = '🌳'; category = 'parks'; }
+    else if (t.highway === 'trailhead' || t.route === 'hiking') { emoji = '🥾'; category = 'trails'; }
+    else if (t.shop === 'supermarket' || t.shop === 'grocery') { emoji = '🛒'; category = 'grocery'; }
     return {
       id: `pf-${el.type}-${el.id}`,
       name: t.name || t.brand || emoji,
       lat: el.lat ?? el.center?.lat,
       lng: el.lon ?? el.center?.lon,
       emoji,
+      category,
       tags: t,
     };
   }, []);
@@ -1051,14 +1071,11 @@ export default function TripWorkspace() {
     } catch { setPoiFilterPins([]); }
   }, [mapPoiFilterElement]);
 
-  // Clear POI pins whenever the user switches away from a layer that shows them
+  // Clear attraction pins when switching away from layers that show them
   useEffect(() => {
     if (!['normal', 'satellite'].includes(mapLayer)) {
       setAttractionPins([]);
       setAttractionStatus(null);
-    }
-    if (!['normal', 'satellite', 'trails'].includes(mapLayer)) {
-      setPoiFilterPins([]);
     }
   }, [mapLayer]);
 
@@ -1067,11 +1084,16 @@ export default function TripWorkspace() {
     const stored = currentBoundsRef.current;
     if (!stored) return;
     const { bounds } = stored;
-    if (!['normal', 'satellite', 'trails'].includes(mapLayerRef.current)) return;
     clearTimeout(poiFilterDebounce.current);
     if (!poiFilterCategories.size) { setPoiFilterPins([]); return; }
     const cats = Array.from(poiFilterCategories);
     poiFilterDebounce.current = setTimeout(() => doPoiFilterFetch(bounds, cats), 500);
+    // Suppress attraction pins when a custom POI filter is active
+    const poiFilterActive = poiFilterCategories.size > 0 && poiFilterCategories.size < POI_FILTER_OPTIONS.length;
+    if (poiFilterActive) {
+      setAttractionPins([]);
+      setAttractionStatus(null);
+    }
   }, [poiFilterCategories, doPoiFilterFetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Score a POI element by importance (higher = more prominent)
@@ -1203,8 +1225,11 @@ export default function TripWorkspace() {
     setGasPins([]);
     setGasStatus(null);
 
-    // ── Attraction layer: POI pins on normal/satellite only ─────────────────
-    if (!['normal', 'satellite'].includes(currentLayer)) {
+    // ── Attraction layer: POI pins on normal/satellite only
+    // Suppressed when POI filter has a custom selection (not all or none) to avoid confusion
+    const poiCats = poiFilterCategoriesRef.current;
+    const poiFilterActive = poiCats.size > 0 && poiCats.size < POI_FILTER_OPTIONS.length;
+    if (!['normal', 'satellite'].includes(currentLayer) || poiFilterActive) {
       setAttractionPins([]);
       setAttractionStatus(null);
     } else {
@@ -1326,18 +1351,13 @@ export default function TripWorkspace() {
     }, 600);
     } // end else (attraction layer)
 
-    // ── POI filter pins (multi-select, shown on normal/satellite/trails) ──────
-    if (!['normal', 'satellite', 'trails'].includes(currentLayer)) {
-      clearTimeout(poiFilterDebounce.current);
-      setPoiFilterPins([]);
-    } else {
-      clearTimeout(poiFilterDebounce.current);
-      poiFilterDebounce.current = setTimeout(() => {
-        const cats = Array.from(poiFilterCategoriesRef.current);
-        if (!cats.length) { setPoiFilterPins([]); return; }
-        doPoiFilterFetch(bounds, cats);
-      }, 700);
-    }
+    // ── POI filter pins (multi-select, shown on all layers) ──────────────────
+    clearTimeout(poiFilterDebounce.current);
+    poiFilterDebounce.current = setTimeout(() => {
+      const cats = Array.from(poiFilterCategoriesRef.current);
+      if (!cats.length) { setPoiFilterPins([]); return; }
+      doPoiFilterFetch(bounds, cats);
+    }, 700);
   }, [activeTab, doPoiFilterFetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const prepareOffline = useCallback(async () => {
@@ -1502,7 +1522,6 @@ export default function TripWorkspace() {
             </span>
           )}
         </div>
-        <button className="ws-search-btn" onClick={() => setShowSearch(true)} aria-label="Search">🔍</button>
       </div>
 
       {isOffline && (
@@ -1580,7 +1599,7 @@ export default function TripWorkspace() {
             <button
               className={`map-ctrl-btn${showNavPopup ? ' map-ctrl-active' : ''}`}
               title="Navigate"
-              onClick={() => { setShowNavPopup(prev => !prev); setShowMapFilters(false); setShowMapLayers(false); setShowTrailsPicker(false); setShowPoiFilter(false); }}
+              onClick={() => { setShowNavPopup(prev => !prev); setShowMapFilters(false); setShowMapLayers(false); setShowTrailsPicker(false); setShowPoiFilter(false); setShowMoreMenu(false); }}
             >
               <span className="map-ctrl-icon">◎</span>
             </button>
@@ -1588,7 +1607,7 @@ export default function TripWorkspace() {
               <button
                 className={`map-ctrl-btn${showMapFilters ? ' map-ctrl-active' : ''}`}
                 title="Filters"
-                onClick={() => { setShowMapFilters(prev => !prev); setShowNavPopup(false); setShowMapLayers(false); setShowTrailsPicker(false); setShowPoiFilter(false); }}
+                onClick={() => { setShowMapFilters(prev => !prev); setShowNavPopup(false); setShowMapLayers(false); setShowTrailsPicker(false); setShowPoiFilter(false); setShowMoreMenu(false); }}
               >
                 <span className="map-ctrl-icon">⚙️</span>
               </button>
@@ -1596,19 +1615,17 @@ export default function TripWorkspace() {
             <button
               className={`map-ctrl-btn${showMapLayers ? ' map-ctrl-active' : ''}`}
               title="Map layers"
-              onClick={() => { setShowMapLayers(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowTrailsPicker(false); setShowPoiFilter(false); }}
+              onClick={() => { setShowMapLayers(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowTrailsPicker(false); setShowPoiFilter(false); setShowMoreMenu(false); }}
             >
               <span className="map-ctrl-icon">🛰️</span>
             </button>
-            {['normal', 'satellite', 'trails'].includes(mapLayer) && (
-              <button
-                className={`map-ctrl-btn${showPoiFilter ? ' map-ctrl-active' : ''}${poiFilterCategories.size > 0 ? ' map-ctrl-badge' : ''}`}
-                title="POI filter"
-                onClick={() => { setShowPoiFilter(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowMapLayers(false); setShowTrailsPicker(false); }}
-              >
-                <span className="map-ctrl-icon">🔎</span>
-              </button>
-            )}
+            <button
+              className={`map-ctrl-btn${showPoiFilter ? ' map-ctrl-active' : ''}${poiFilterCategories.size > 0 && poiFilterCategories.size < POI_FILTER_OPTIONS.length ? ' map-ctrl-badge' : ''}`}
+              title="POI filter"
+              onClick={() => { setShowPoiFilter(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowMapLayers(false); setShowTrailsPicker(false); setShowMoreMenu(false); }}
+            >
+              <span className="map-ctrl-icon">◈</span>
+            </button>
             <button
               className={`map-ctrl-btn map-ctrl-search${mapSearchMode ? ' map-ctrl-active' : ''}`}
               title={mapSearchMode ? 'Exit search' : 'Search this area'}
@@ -1617,17 +1634,12 @@ export default function TripWorkspace() {
               <span className="map-ctrl-icon">{mapSearchMode ? '✕' : '🔍'}</span>
             </button>
             <button
-              className={`map-ctrl-btn map-ctrl-trails${showTrailsPicker ? ' map-ctrl-active' : ''}`}
-              title="Find trails"
-              onClick={() => { setShowTrailsPicker(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowMapLayers(false); setShowPoiFilter(false); }}
+              className={`map-ctrl-btn${showMoreMenu ? ' map-ctrl-active' : ''}`}
+              title="More options"
+              onClick={() => { setShowMoreMenu(prev => !prev); setShowNavPopup(false); setShowMapFilters(false); setShowMapLayers(false); setShowPoiFilter(false); setShowTrailsPicker(false); }}
             >
-              <span className="map-ctrl-icon">🥾</span>
+              <span className="map-ctrl-icon">⋯</span>
             </button>
-            {routeStops.length > 0 && (
-              <button className="map-ctrl-btn" title="Add photo to nearest stop" onClick={handlePhotoByLocation}>
-                <span className="map-ctrl-icon">📸</span>
-              </button>
-            )}
           </div>
           {showNavPopup && (
             <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
@@ -1647,6 +1659,21 @@ export default function TripWorkspace() {
               <button className="map-filter-menu-btn" onClick={openGoogleMapsHiking}>
                 🗺️ Google Maps hiking
               </button>
+            </div>
+          )}
+          {showMoreMenu && (
+            <div className="ws-map-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
+              <button className="map-filter-menu-btn" onClick={() => { openAllTrails(); setShowMoreMenu(false); }}>
+                🌲 AllTrails
+              </button>
+              <button className="map-filter-menu-btn" onClick={() => { openGoogleMapsHiking(); setShowMoreMenu(false); }}>
+                🗺️ Google Maps hiking
+              </button>
+              {routeStops.length > 0 && (
+                <button className="map-filter-menu-btn" onClick={() => { handlePhotoByLocation(); setShowMoreMenu(false); }}>
+                  📸 Add photo
+                </button>
+              )}
             </div>
           )}
           {showMapLayers && (
@@ -1696,18 +1723,28 @@ export default function TripWorkspace() {
           )}
 
           {/* ── POI filter popup ── */}
-          {showPoiFilter && ['normal', 'satellite', 'trails'].includes(mapLayer) && (
+          {showPoiFilter && (
             <div className="ws-map-filter-menu poi-filter-menu" style={{ bottom: mapOverlayBottom, right: '68px' }}>
               <div className="poi-filter-header">
                 <span>POI Filter</span>
-                {poiFilterCategories.size > 0 && (
-                  <button
-                    className="poi-filter-clear"
-                    onClick={() => setPoiFilterCategories(new Set())}
-                  >
-                    Clear
-                  </button>
-                )}
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {poiFilterCategories.size < POI_FILTER_OPTIONS.length && (
+                    <button
+                      className="poi-filter-clear"
+                      onClick={() => setPoiFilterCategories(new Set(POI_FILTER_OPTIONS.map(o => o.key)))}
+                    >
+                      All
+                    </button>
+                  )}
+                  {poiFilterCategories.size > 0 && (
+                    <button
+                      className="poi-filter-clear"
+                      onClick={() => setPoiFilterCategories(new Set())}
+                    >
+                      None
+                    </button>
+                  )}
+                </div>
               </div>
               {POI_FILTER_OPTIONS.map(opt => {
                 const active = poiFilterCategories.has(opt.key);

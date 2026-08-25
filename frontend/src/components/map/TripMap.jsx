@@ -168,7 +168,19 @@ function makeAttractionIcon(name) {
   return L.divIcon({ html, className: '', iconSize: [30, 46], iconAnchor: [15, 30], popupAnchor: [0, -32] });
 }
 
-function makePoiFilterIcon(emoji, name) {
+function makePoiFilterIcon(emoji, name, category) {
+  // Color per POI category key
+  const CAT_COLORS = {
+    gas: '#f59e0b',
+    food: '#ef4444',
+    coffee: '#92400e',
+    ev: '#22c55e',
+    natpark: '#166534',
+    parks: '#16a34a',
+    trails: '#78350f',
+    grocery: '#0284c7',
+  };
+  const bg = CAT_COLORS[category] || '#0ea5e9';
   const rawLabel = name ? name.slice(0, 22) : '';
   const label = rawLabel
     .replace(/&/g, '&amp;')
@@ -183,7 +195,7 @@ function makePoiFilterIcon(emoji, name) {
   ">
     <div style="
       width:30px;height:30px;border-radius:50%;
-      background:#0ea5e9;border:2.5px solid #fff;
+      background:${bg};border:2.5px solid #fff;
       box-shadow:0 2px 8px rgba(0,0,0,.35);
       display:flex;align-items:center;justify-content:center;
       font-size:15px;
@@ -732,12 +744,12 @@ const TripMap = forwardRef(function TripMap(
           />
         ))}
 
-        {/* POI filter pins (multi-select overlay, shown on normal/satellite/trails) */}
+        {/* POI filter pins (multi-select overlay, shown on all map layers) */}
         {poiFilterPins.map(pin => (
           <Marker
             key={`pf-${pin.id}`}
             position={[pin.lat, pin.lng]}
-            icon={makePoiFilterIcon(pin.emoji, pin.name)}
+            icon={makePoiFilterIcon(pin.emoji, pin.name, pin.category)}
             eventHandlers={onPoiFilterPinClick ? { click: () => onPoiFilterPinClick(pin) } : {}}
           />
         ))}

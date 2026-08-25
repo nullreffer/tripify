@@ -45,11 +45,12 @@ function TripCard({ trip, onInvite, onClick, onSlideshow, onGallery }) {
   const role = trip.memberRole || 'OWNER';
   const roleInfo = ROLE_LABELS[role] || ROLE_LABELS.OWNER;
   const canInvite = role === 'OWNER' || role === 'PLANNER';
+  const isComplete = trip.stopCount > 0 && trip.reachedCount >= trip.stopCount;
 
   const memberAvatars = trip.members?.slice(0, 4) || [];
 
   return (
-    <div className="trip-card" onClick={onClick} style={{ cursor: onClick ? 'pointer' : undefined }}>
+    <div className={`trip-card${isComplete ? ' trip-card-complete' : ''}`} onClick={onClick} style={{ cursor: onClick ? 'pointer' : undefined }}>
       <div
         className="trip-card-banner"
         style={trip.coverImage
@@ -63,7 +64,10 @@ function TripCard({ trip, onInvite, onClick, onSlideshow, onGallery }) {
       />
       <div className="trip-card-body">
         <div className="trip-card-top">
-          <h3 className="trip-card-title">{trip.title}</h3>
+          <h3 className="trip-card-title">
+            {trip.title}
+            {isComplete && <span className="trip-complete-badge" title="All stops reached">✓ Complete</span>}
+          </h3>
           <div className="trip-card-actions">
             {onGallery && (
               <button
