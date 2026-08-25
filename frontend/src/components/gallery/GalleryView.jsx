@@ -148,12 +148,13 @@ export default function GalleryView({ stops, onBack, onOpenStop, onDeletePhoto, 
                 {onAddPhoto && (
                   <>
                     <button
-                      className="btn-ghost btn-sm"
+                      className="gallery-icon-btn"
                       onClick={() => fileInputRefs.current[stop.id]?.click()}
                       disabled={isUploading}
                       title="Add photo"
+                      aria-label="Add photo"
                     >
-                      {isUploading ? '⏳' : '+ Add'}
+                      {isUploading ? '⏳' : '➕'}
                     </button>
                     <input
                       ref={el => { fileInputRefs.current[stop.id] = el; }}
@@ -169,7 +170,7 @@ export default function GalleryView({ stops, onBack, onOpenStop, onDeletePhoto, 
                   </>
                 )}
                 {onOpenStop && (
-                  <button className="btn-ghost btn-sm" onClick={() => onOpenStop(stop)} title="View stop">View</button>
+                  <button className="gallery-icon-btn" onClick={() => onOpenStop(stop)} title="View stop" aria-label="View stop">🔗</button>
                 )}
               </div>
             </div>
@@ -191,7 +192,7 @@ export default function GalleryView({ stops, onBack, onOpenStop, onDeletePhoto, 
               </div>
             )}
             {photos.length === 0 && onAddPhoto && (
-              <p className="gallery-stop-empty">No photos yet — tap &ldquo;+ Add&rdquo; to upload.</p>
+              <p className="gallery-stop-empty">No photos yet — tap ➕ to upload.</p>
             )}
           </div>
         );
