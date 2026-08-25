@@ -13,8 +13,10 @@ router.get('/', async (req, res, next) => {
   try {
     const include = {
       members: { include: { user: { select: { id: true, name: true, avatar: true } } } },
-      _count: { select: { stops: true } },
-      stops: { where: { reached: true }, select: { id: true } }
+      // Fetch all stops with metadata so we can exclude saved-for-later when
+      // computing stopCount / reachedCount (saved-for-later stops cannot be
+      // "reached" so they must not inflate the total against which we compare).
+      stops: { select: { id: true, reached: true, metadata: true } }
     };
 
     const dbStart = Date.now();
@@ -42,21 +44,32 @@ router.get('/', async (req, res, next) => {
       .filter(m => !ownedIds.has(m.trip.id))
       .map(m => ({ ...m.trip, memberRole: m.role }));
 
-    const format = (t, role) => ({
-      id: t.id,
-      title: t.title,
-      description: t.description,
-      coverImage: t.coverImage,
-      coverImagePosition: t.coverImagePosition,
-      startDate: t.startDate,
-      endDate: t.endDate,
-      stopCount: t._count.stops,
-      reachedCount: t.stops.length,
-      members: t.members,
-      memberRole: role,
-      updatedAt: t.updatedAt,
-      createdAt: t.createdAt
-    });
+    const format = (t, role) => {
+      // Exclude saved-for-later stops from the completion calculation — only
+      // route stops can be marked reached, so the denominator must match.
+      // Prisma returns Json fields as objects, but guard against raw strings just in case.
+      const parseMeta = (m) => {
+        if (!m) return null;
+        if (typeof m === 'string') { try { return JSON.parse(m); } catch { return null; } }
+        return m;
+      };
+      const routeStops = t.stops.filter(s => !parseMeta(s.metadata)?.savedForLater);
+      return {
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        coverImage: t.coverImage,
+        coverImagePosition: t.coverImagePosition,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        stopCount: routeStops.length,
+        reachedCount: routeStops.filter(s => s.reached).length,
+        members: t.members,
+        memberRole: role,
+        updatedAt: t.updatedAt,
+        createdAt: t.createdAt
+      };
+    };
 
     const result = [
       ...owned.map(t => format(t, 'OWNER')),

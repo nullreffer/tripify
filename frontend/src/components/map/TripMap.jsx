@@ -504,6 +504,7 @@ const TripMap = forwardRef(function TripMap(
     auroraPins = [],
     poiFilterPins = [],
     onPoiFilterPinClick,
+    poiFilterStatus = null,
     mapTileProvider = 'stadia' },
   mapRef
 ) {
@@ -735,7 +736,7 @@ const TripMap = forwardRef(function TripMap(
         ))}
 
         {/* Aurora visibility circles (shown on aurora layer) */}
-        {isAuroraLayer && auroraPins.map(pin => (
+        {isAuroraLayer && Array.isArray(auroraPins) && auroraPins.map(pin => (
           <Circle
             key={`aurora-${pin.id}`}
             center={[pin.lat, pin.lng]}
@@ -799,14 +800,14 @@ const TripMap = forwardRef(function TripMap(
         </div>
       )}
       {/* Status chip — shows whichever layer's status is active */}
-      {(attractionStatus || (isAqiLayer && aqiStatus) || (isGasLayer && gasStatus)) && (
+      {(attractionStatus || poiFilterStatus || (isAqiLayer && aqiStatus) || (isGasLayer && gasStatus)) && (
         <div style={{
           position: 'absolute', top: '10px', left: '10px', zIndex: 1100,
           background: 'rgba(15,23,42,0.85)', color: '#fff',
           borderRadius: '6px', padding: '3px 8px', fontSize: '11px',
           pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.15)',
         }}>
-          {attractionStatus || (isAqiLayer && aqiStatus) || (isGasLayer && gasStatus)}
+          {attractionStatus || poiFilterStatus || (isAqiLayer && aqiStatus) || (isGasLayer && gasStatus)}
         </div>
       )}
     </div>

@@ -234,6 +234,7 @@ export default function TripWorkspace() {
     return new Set(POI_FILTER_OPTIONS.map(o => o.key));
   });
   const [poiFilterPins, setPoiFilterPins] = useState([]);
+  const [poiFilterStatus, setPoiFilterStatus] = useState(null);
   const [selectedPoiFilterPin, setSelectedPoiFilterPin] = useState(null);
   const poiFilterDebounce = useRef(null);
   const poiFilterCategoriesRef = useRef(poiFilterCategories);
@@ -1053,10 +1054,25 @@ export default function TripWorkspace() {
     const fw = bounds.getWest().toFixed(4);
     const fn = bounds.getNorth().toFixed(4);
     const fe = bounds.getEast().toFixed(4);
+    // Cache key includes sorted categories so each combination is cached separately
+    const cacheKey = `poifilter:${fs},${fw},${fn},${fe}:${[...cats].sort().join(',')}`;
+    // Serve from session storage cache first (avoids re-querying on pan/open)
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const pins = JSON.parse(cached);
+        setPoiFilterPins(pins);
+        setPoiFilterStatus(`⭐ ${pins.length} POI (cached)`);
+        return;
+      } catch { /* fall through to live fetch */ }
+    }
+    setPoiFilterStatus('⭐ POI: fetching…');
     try {
       const options = POI_FILTER_OPTIONS.filter(o => cats.includes(o.key));
       const allFragments = options.flatMap(o => o.fragments(fs, fw, fn, fe));
-      const query = `[out:json][timeout:20];(${allFragments.join('')});out center 150;`;
+      // Use 300 results — significantly more than any poiLimit setting so the
+      // filter is never constrained by the top-POI limit.
+      const query = `[out:json][timeout:20];(${allFragments.join('')});out center 300;`;
       const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/places/poi`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1064,11 +1080,16 @@ export default function TripWorkspace() {
         body: JSON.stringify({ query, provider: 'overpass' }),
         signal: AbortSignal.timeout(15000),
       });
-      if (!res.ok) return;
+      if (!res.ok) { setPoiFilterStatus('⭐ POI: failed'); return; }
       const data = await res.json();
       const pins = (data.elements || []).map(mapPoiFilterElement).filter(p => p.lat != null && p.lng != null);
       setPoiFilterPins(pins);
-    } catch { setPoiFilterPins([]); }
+      setPoiFilterStatus(`⭐ ${pins.length} POI`);
+      try { sessionStorage.setItem(cacheKey, JSON.stringify(pins)); } catch { /* storage full */ }
+    } catch {
+      setPoiFilterPins([]);
+      setPoiFilterStatus('⭐ POI: failed');
+    }
   }, [mapPoiFilterElement]);
 
   // Clear attraction pins when switching away from layers that show them
@@ -1085,15 +1106,17 @@ export default function TripWorkspace() {
     if (!stored) return;
     const { bounds } = stored;
     clearTimeout(poiFilterDebounce.current);
-    if (!poiFilterCategories.size) { setPoiFilterPins([]); return; }
+    if (!poiFilterCategories.size) {
+      setPoiFilterPins([]);
+      setPoiFilterStatus(null);
+      return;
+    }
     const cats = Array.from(poiFilterCategories);
     poiFilterDebounce.current = setTimeout(() => doPoiFilterFetch(bounds, cats), 500);
-    // Suppress attraction pins when a custom POI filter is active
-    const poiFilterActive = poiFilterCategories.size > 0 && poiFilterCategories.size < POI_FILTER_OPTIONS.length;
-    if (poiFilterActive) {
-      setAttractionPins([]);
-      setAttractionStatus(null);
-    }
+    // POI filter is now the sole POI display system — suppress attraction pins
+    // whenever any categories are selected (even "all").
+    setAttractionPins([]);
+    setAttractionStatus(null);
   }, [poiFilterCategories, doPoiFilterFetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Score a POI element by importance (higher = more prominent)
@@ -1226,9 +1249,10 @@ export default function TripWorkspace() {
     setGasStatus(null);
 
     // ── Attraction layer: POI pins on normal/satellite only
-    // Suppressed when POI filter has a custom selection (not all or none) to avoid confusion
+    // Suppressed whenever the POI filter has any categories selected — the filter
+    // system is now the sole driver of POI pins.
     const poiCats = poiFilterCategoriesRef.current;
-    const poiFilterActive = poiCats.size > 0 && poiCats.size < POI_FILTER_OPTIONS.length;
+    const poiFilterActive = poiCats.size > 0;
     if (!['normal', 'satellite'].includes(currentLayer) || poiFilterActive) {
       setAttractionPins([]);
       setAttractionStatus(null);
@@ -1355,7 +1379,7 @@ export default function TripWorkspace() {
     clearTimeout(poiFilterDebounce.current);
     poiFilterDebounce.current = setTimeout(() => {
       const cats = Array.from(poiFilterCategoriesRef.current);
-      if (!cats.length) { setPoiFilterPins([]); return; }
+      if (!cats.length) { setPoiFilterPins([]); setPoiFilterStatus(null); return; }
       doPoiFilterFetch(bounds, cats);
     }, 700);
   }, [activeTab, doPoiFilterFetch]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1588,6 +1612,7 @@ export default function TripWorkspace() {
             mapTileProvider={settings.mapTileProvider ?? 'stadia'}
             poiFilterPins={poiFilterPins}
             onPoiFilterPinClick={pin => setSelectedPoiFilterPin(pin)}
+            poiFilterStatus={poiFilterStatus}
           />
 
           {/* ── Map overlay control buttons ── */}

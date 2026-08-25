@@ -1950,9 +1950,12 @@ body {
 .map-ctrl-btn:first-child:hover { background: var(--primary-hover); }
 .map-ctrl-trails { color: #16a34a !important; }
 
-/* Leaflet attribution — theme-aware and positioned above the map controls */
+/* Leaflet attribution — relocated to bottom-left so it never overlaps the
+   right-side control buttons. Keep bottom:0 so it sits flush at the edge. */
 .ws-map-layer .leaflet-bottom.leaflet-right {
-  bottom: 54px;
+  right: auto;
+  left: 0;
+  bottom: 0;
 }
 .ws-map-layer .leaflet-control-attribution {
   background: var(--surface) !important;
