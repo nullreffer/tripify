@@ -31,9 +31,12 @@ export async function fetchKpForecast() {
   const res = await fetch(SWPC_URL, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error('Failed to fetch aurora forecast');
   const raw = await res.json();
+  // Validate that NOAA returned an array (guard against unexpected JSON shapes)
+  if (!Array.isArray(raw)) throw new Error('Unexpected aurora forecast format');
   // First row is header
   const rows = raw.slice(1);
   return rows
+    .filter(row => Array.isArray(row))
     .map(([timeTag, kp]) => ({
       time: new Date(timeTag + 'Z'), // SWPC uses UTC but omits the Z
       kp: parseFloat(kp),
@@ -108,8 +111,10 @@ export async function fetchKpForecast27Day() {
  * Returns an array of { date: Date, kp: number } with the max Kp per day.
  */
 export function aggregateForecastByDay(forecast) {
+  if (!Array.isArray(forecast)) return [];
   const dayMap = new Map();
   for (const entry of forecast) {
+    if (!entry || typeof entry.time?.toISOString !== 'function') continue;
     const key = entry.time.toISOString().slice(0, 10);
     const existing = dayMap.get(key);
     if (!existing || entry.kp > existing.kp) {
